@@ -12,6 +12,7 @@ engine: knitr
 # Parámetros globales de salida (Formato HTML Científico para GitHub Pages)
 format:
   html:
+    
     toc: true                   # Activa una tabla de contenidos dinámica
     toc-depth: 3                 # Nivel de detalle del índice (Hasta subsecciones)
     toc-title: "Índice de Contenidos"
@@ -189,7 +190,8 @@ La siguiente línea de código crea el objeto que será usado a continuación pa
 # 2.3.1. Carga en R de archivo csv obtenido de los horarios oficiales.
 # ==============================================================================
 
-siglas_nombres_asignaturas <- file.path("datos_control", "codigos_nombres_siglas_asignaturas_web.csv")
+siglas_nombres_asignaturas <- file.path("datos_control",
+                                        "codigos_nombres_siglas_asignaturas_web.csv")
 ```
 
 ## Extracción de texto, normalización y creación de corpus unificado
@@ -220,9 +222,9 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
     paste(collapse = " ") %>% 
     str_replace_all("\\s+", " ")
   
-  # ==============================================================================
+  # ============================================================================
   # 2.4.1.1. Extracción de metadatos básicos de cada asignatura
-  # ==============================================================================
+  # ============================================================================
   pos_asig <- str_locate(texto_completo, "(?i)Denominación:")[1, "end"]
   asig_val <- if(!is.na(pos_asig)) {
     str_sub(texto_completo, start = pos_asig + 1, end = pos_asig + 150) %>% 
@@ -248,9 +250,9 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
       str_extract("^\\w+\\s+\\w+")
   } else { NA_character_ }
   
-  # ==============================================================================
-  # 4.1.1.2 Extracción de secciones específicas de contenido para el análisis semántico
-  # ==============================================================================
+  # ============================================================================
+  # 4.1.1.2 Extracción de secciones específicas de contenido para el análisis 
+  # ============================================================================
   recortar_seccion <- function(texto, baliza_inicio, baliza_fin) {
     ini <- str_locate(texto, regex(baliza_inicio, ignore_case = TRUE))[1, "end"]
     fin <- str_locate(texto, regex(baliza_fin, ignore_case = TRUE))[1, "start"]
@@ -261,14 +263,18 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
     }
   }
   
-  # Nuevas extracciones de requisitos normativos solicitadas
-  req_val  <- recortar_seccion(texto_completo, "Requisitos previos establecidos en el plan de estudios", "Recomendaciones")
+  # Secciones de contenidos y requisitos
+  req_val  <- recortar_seccion(texto_completo,
+                               "Requisitos previos establecidos en el plan de estudios",
+                               "Recomendaciones")
   reco_val <- recortar_seccion(texto_completo, "Recomendaciones", "Programa de la asignatura")
   
-  # Secciones de contenidos biofísicos y temarios
-  desc_cont <- recortar_seccion(texto_completo, "Breve descripción de los contenidos", "Conocimientos previos necesarios")
-  cont_teor <- recortar_seccion(texto_completo, "1\\. Contenidos teóricos", "2\\. Contenidos prácticos")
-  cont_prac <- recortar_seccion(texto_completo, "2\\. Contenidos prácticos", "Bibliografía")
+  desc_cont <- recortar_seccion(texto_completo, "Breve descripción de los contenidos",
+                                "Conocimientos previos necesarios")
+  cont_teor <- recortar_seccion(texto_completo, "1\\. Contenidos teóricos",
+                                "2\\. Contenidos prácticos")
+  cont_prac <- recortar_seccion(texto_completo, "2\\. Contenidos prácticos",
+                                "Bibliografía")
   
   tibble(
     archivo                 = basename(ruta),
@@ -285,7 +291,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
 })
 
 # ==============================================================================
-# 4.1.1.3 Integración de siglas y códigos con nombres de asignaturas para unificación de identificadores
+# 4.1.1.3 Integración de siglas y códigos con nombres de asignaturas 
 # ==============================================================================
 if (file.exists(siglas_nombres_asignaturas)) {
   diccionario_siglas <- read_csv2(siglas_nombres_asignaturas, show_col_types = FALSE) %>%
@@ -303,7 +309,8 @@ if (file.exists(siglas_nombres_asignaturas)) {
     select(-sigla_clean)
 } else {
   datos_guias <- datos_guias_inicial %>% mutate(sigla = codigo)
-  cat("Advertencia: No se encontró el archivo CSV de siglas. Usando códigos como identificador.\n")
+  cat("Advertencia: No se encontró el archivo CSV de siglas. 
+      Usando códigos como identificador.\n")
 }
 
 # ==============================================================================
@@ -312,8 +319,55 @@ if (file.exists(siglas_nombres_asignaturas)) {
 corpus_busqueda <- datos_guias %>%
   filter(!is.na(nombre_asignatura)) %>%
   mutate(
-    texto_unificado = tolower(paste(descripcion_contenidos, contenidos_teoricos, contenidos_practicos, sep = " ")),
+    texto_unificado = tolower(paste(descripcion_contenidos, contenidos_teoricos,
+                                    contenidos_practicos, sep = " ")),
     nombre_limpio   = tolower(str_trim(nombre_asignatura))
   )
 ```
+
+
+
+### Inspección del Corpus Unificado Extraído
+
+Para verificar el éxito de la ingesta y la correcta delimitación de los nuevos campos vectoriales, se presenta a continuación la matriz relacional indexada de las asignaturas del Grado. La tabla cuenta con paginación interactiva para facilitar la auditoría de los metadatos temporales y los bloques textuales de requisitos y recomendaciones.
+
+```{r}
+#| label: visualizacion-corpus-busqueda
+#| echo: true
+#| eval: true
+
+# ==============================================================================
+# 1. SELECCIÓN Y OPTIMIZACIÓN DE CAMPOS PARA LA VISUALIZACIÓN EJECUTIVA
+# ==============================================================================
+vista_previa_corpus <- corpus_busqueda %>%
+  select(
+    Sigla = sigla,
+    `Código UCO` = codigo,
+    Curso = curso,
+    Cuatrimestre = cuatrimestre,
+    `Requisitos Previos` = requisitos,
+    `Recomendaciones Docentes` = recomenda
+  ) %>%
+  # Limpieza de strings excesivamente largos en la vista de tabla para evitar desbordamientos
+  mutate(
+    `Requisitos Previos` = if_else(
+      is.na(`Requisitos Previos`) | `Requisitos Previos` == "", 
+      "No declarados en la guía", 
+      str_trunc(`Requisitos Previos`, 80, side = "right")
+    ),
+    `Recomendaciones Docentes` = if_else(
+      is.na(`Recomendaciones Docentes`) | `Recomendaciones Docentes` == "", 
+      "No declaradas en la guía", 
+      str_trunc(`Recomendaciones Docentes`, 80, side = "right")
+    )
+  )
+
+# ==============================================================================
+# 2. RENDERIZADO DE LA TABLA WEB INTERACTIVA
+# ==============================================================================
+rmarkdown::paged_table(vista_previa_corpus, options = list(rows.print = 10, max.print = 50))
+
+```
+
+lkñj ñlkj 
 
