@@ -1,0 +1,32 @@
+---
+title: "Metodología para evaluar el tipo de relaciones existentes entre las asignaturas de Ciencias Ambientales de la Universidad de Córdoba"
+subtitle: "Análisis similitud de contenidos y coordinación entre asignaturas. Curso 25-26"
+author: "Curro Bonet-García. Profesor de la UCO."
+date: today
+date-format: "03 [de] Junio [de] 2026"
+lang: es
+
+# Configuración del motor de cómputo nativo de R
+engine: knitr
+
+# Parámetros globales de salida (Formato HTML Científico para GitHub Pages)
+format:
+  html:
+    toc: true                   # Activa una tabla de contenidos dinámica
+    toc-depth: 3                 # Nivel de detalle del índice (Hasta subsecciones)
+    toc-title: "Índice de Contenidos"
+    toc-location: left           # Ubicación lateral elegante para pantallas anchas
+    number-sections: true        # Autonumeración jerárquica de apartados
+    theme: cosmo                 # Estilo limpio, tipografía nítida, aire académico
+    code-fold: show             # Muestra el código R, pero permite al usuario "replegarlo"
+    code-summary: "Mostrar líneas de código R"
+    code-copy: true              # Añade un botón flotante para copiar el código con un clic
+    embed-resources: true        # Incrusta imágenes y estilos en un único archivo .html autosuficiente
+
+# Reglas globales de ejecución para los bloques (Chunks) de R
+execute:
+  eval: true                     # Ejecuta los bloques por defecto (salvo excepciones locales)
+  echo: true                     # MUESTRA EL CÓDIGO SIEMPRE (Requisito de reproducibilidad)
+  warning: false                 # Oculta las alertas de carga de librerías en el informe final
+  message: false                 # Puga los mensajes informativos del sistema o de ggplot2
+---
