@@ -327,13 +327,14 @@ corpus_busqueda <- datos_guias %>%
 
 
 
-### Inspección del Corpus Unificado Extraído
+### Tabla con los datos extraidos
 
-Para verificar el éxito de la ingesta y la correcta delimitación de los nuevos campos vectoriales, se presenta a continuación la matriz relacional indexada de las asignaturas del Grado. La tabla cuenta con paginación interactiva para facilitar la auditoría de los metadatos temporales y los bloques textuales de requisitos y recomendaciones.
+El resultado del proceso anterior se puede ver a continuación. Se trata de una matriz con tantas filas como asignaturas. Los campos representan los atributos que caracterizan a cada asignatura: datos generales y contenidos que se analizarán en los siguientes bloques.
+
 
 ```{r}
 #| label: visualizacion-corpus-busqueda
-#| echo: true
+#| echo: false
 #| eval: true
 
 # ==============================================================================
@@ -369,5 +370,6 @@ rmarkdown::paged_table(vista_previa_corpus, options = list(rows.print = 10, max.
 
 ```
 
-lkñj ñlkj 
+
+## te quedas por aquí. creación de los índices
 

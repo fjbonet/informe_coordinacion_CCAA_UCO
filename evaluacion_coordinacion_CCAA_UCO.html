@@ -4367,7 +4367,7 @@ window.onload = function() {
   <li><a href="#creación-de-tabla-con-nombres-de-asignaturas-sus-códigos-y-sus-siglas." id="toc-creación-de-tabla-con-nombres-de-asignaturas-sus-códigos-y-sus-siglas." class="nav-link" data-scroll-target="#creación-de-tabla-con-nombres-de-asignaturas-sus-códigos-y-sus-siglas."><span class="header-section-number">2.3</span> Creación de tabla con nombres de asignaturas, sus códigos y sus siglas.</a></li>
   <li><a href="#extracción-de-texto-normalización-y-creación-de-corpus-unificado" id="toc-extracción-de-texto-normalización-y-creación-de-corpus-unificado" class="nav-link" data-scroll-target="#extracción-de-texto-normalización-y-creación-de-corpus-unificado"><span class="header-section-number">2.4</span> Extracción de texto, normalización y creación de corpus unificado</a>
   <ul class="collapse">
-  <li><a href="#inspección-del-corpus-unificado-extraído" id="toc-inspección-del-corpus-unificado-extraído" class="nav-link" data-scroll-target="#inspección-del-corpus-unificado-extraído"><span class="header-section-number">2.4.1</span> Inspección del Corpus Unificado Extraído</a></li>
+  <li><a href="#tabla-con-los-datos-extraidos" id="toc-tabla-con-los-datos-extraidos" class="nav-link" data-scroll-target="#tabla-con-los-datos-extraidos"><span class="header-section-number">2.4.1</span> Tabla con los datos extraidos</a></li>
   </ul></li>
   </ul></li>
   </ul>
@@ -4679,43 +4679,10 @@ Requisitos previos de ejecución
 <span id="cb4-112"><a href="#cb4-112" aria-hidden="true" tabindex="-1"></a>  )</span></code><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<section id="inspección-del-corpus-unificado-extraído" class="level3" data-number="2.4.1">
-<h3 data-number="2.4.1" class="anchored" data-anchor-id="inspección-del-corpus-unificado-extraído"><span class="header-section-number">2.4.1</span> Inspección del Corpus Unificado Extraído</h3>
-<p>Para verificar el éxito de la ingesta y la correcta delimitación de los nuevos campos vectoriales, se presenta a continuación la matriz relacional indexada de las asignaturas del Grado. La tabla cuenta con paginación interactiva para facilitar la auditoría de los metadatos temporales y los bloques textuales de requisitos y recomendaciones.</p>
+<section id="tabla-con-los-datos-extraidos" class="level3" data-number="2.4.1">
+<h3 data-number="2.4.1" class="anchored" data-anchor-id="tabla-con-los-datos-extraidos"><span class="header-section-number">2.4.1</span> Tabla con los datos extraidos</h3>
+<p>El resultado del proceso anterior se puede ver a continuación. Se trata de una matriz con tantas filas como asignaturas. Los campos representan los atributos que caracterizan a cada asignatura: datos generales y contenidos que se analizarán en los siguientes bloques.</p>
 <div class="cell">
-<details open class="code-fold">
-<summary>Mostrar líneas de código R</summary>
-<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ==============================================================================</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. SELECCIÓN Y OPTIMIZACIÓN DE CAMPOS PARA LA VISUALIZACIÓN EJECUTIVA</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co"># ==============================================================================</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>vista_previa_corpus <span class="ot">&lt;-</span> corpus_busqueda <span class="sc">%&gt;%</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">Sigla =</span> sigla,</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Código UCO</span><span class="st">`</span> <span class="ot">=</span> codigo,</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">Curso =</span> curso,</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">Cuatrimestre =</span> cuatrimestre,</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Requisitos Previos</span><span class="st">`</span> <span class="ot">=</span> requisitos,</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Recomendaciones Docentes</span><span class="st">`</span> <span class="ot">=</span> recomenda</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">%&gt;%</span></span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Limpieza de strings excesivamente largos en la vista de tabla para evitar desbordamientos</span></span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Requisitos Previos</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">if_else</span>(</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>      <span class="fu">is.na</span>(<span class="st">`</span><span class="at">Requisitos Previos</span><span class="st">`</span>) <span class="sc">|</span> <span class="st">`</span><span class="at">Requisitos Previos</span><span class="st">`</span> <span class="sc">==</span> <span class="st">&quot;&quot;</span>, </span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>      <span class="st">&quot;No declarados en la guía&quot;</span>, </span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>      <span class="fu">str_trunc</span>(<span class="st">`</span><span class="at">Requisitos Previos</span><span class="st">`</span>, <span class="dv">80</span>, <span class="at">side =</span> <span class="st">&quot;right&quot;</span>)</span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    ),</span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">`</span><span class="at">Recomendaciones Docentes</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">if_else</span>(</span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>      <span class="fu">is.na</span>(<span class="st">`</span><span class="at">Recomendaciones Docentes</span><span class="st">`</span>) <span class="sc">|</span> <span class="st">`</span><span class="at">Recomendaciones Docentes</span><span class="st">`</span> <span class="sc">==</span> <span class="st">&quot;&quot;</span>, </span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>      <span class="st">&quot;No declaradas en la guía&quot;</span>, </span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>      <span class="fu">str_trunc</span>(<span class="st">`</span><span class="at">Recomendaciones Docentes</span><span class="st">`</span>, <span class="dv">80</span>, <span class="at">side =</span> <span class="st">&quot;right&quot;</span>)</span>
-<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>    )</span>
-<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a><span class="co"># ==============================================================================</span></span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. RENDERIZADO DE LA TABLA WEB INTERACTIVA</span></span>
-<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a><span class="co"># ==============================================================================</span></span>
-<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>rmarkdown<span class="sc">::</span><span class="fu">paged_table</span>(vista_previa_corpus, <span class="at">options =</span> <span class="fu">list</span>(<span class="at">rows.print =</span> <span class="dv">10</span>, <span class="at">max.print =</span> <span class="dv">50</span>))</span></code><button title="Copiar al portapapeles" class="code-copy-button"><i class="bi"></i></button></pre></div>
-</details>
 <div class="cell-output-display">
 <div data-pagedtable="false">
   <script data-pagedtable-source type="application/json">
