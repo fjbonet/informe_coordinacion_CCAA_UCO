@@ -1,6 +1,6 @@
 ---
-title: "Metodología para evaluar el tipo de relaciones existentes entre las asignaturas de Ciencias Ambientales de la Universidad de Córdoba"
-subtitle: "Análisis similitud de contenidos y coordinación entre asignaturas. Curso 25-26"
+title: "Análisis similitud de contenidos y coordinación entre asignaturas"
+subtitle: "Grado de Ciencias Ambientales. UCO. Curso 25-26"
 author: "Curro Bonet-García. Profesor de la UCO."
 date: today
 date-format: "03 [de] Junio [de] 2026"
@@ -30,3 +30,112 @@ execute:
   warning: false                 # Oculta las alertas de carga de librerías en el informe final
   message: false                 # Puga los mensajes informativos del sistema o de ggplot2
 ---
+
+# Descripción general y objetivos
+
+El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
+
+La metodología propuesta se basa en técnicas de minería de texto y análisis de similitud del texto contenido en las guías docentes. Implica, en términos generales, los siguientes pasos:
+
+1.  Descarga automática de las guías docentes oficiales en formato PDF desde el sitio web de la UCO.
+
+2.  Extracción y preprocesamiento de las cadenas de texto consideradas como útiles para evaluar la similitud de contenidos (ej. descripción de la asignatura, contenidos teóricos, prácticos, etc.)
+
+3.  Identificación semiautomática de las relaciones explícitas entre asignaturas. Se buscan las referencias cruzadas de nombres de asignaturas en las guías docentes. Por ejemplo, si en la guía docente de la asignatura A se dice explícitamente que la docencia está coordinada con la asignatura B, se contabiliza como un evento de coordinación real.
+
+4.  Cálculo de índices de similitud literal (IF-IDF) y considerando sinonimias (LSA) entre cada combinación de asignaturas. Es decir, se compara el contenido de todas las asignaturas dos a dos y se asignan dos índices (IF-IDF y LSA) a cada relación.
+
+5.  Catalogación de las relaciones identificadas en uno de los siguientes cuatro tipos:
+
+    5.1 **Candidatas a estar experimentando solapamiento horizontal**. Son relaciones en las que se detecta una alta similitud de contenidos y se imparten en el mismo cuatrimestre.
+
+    5.2 **Candidatas a estar experimentando solapamiento vertical**. Son relaciones en las que se detecta una alta similitud de contenidos y se imparten en distintos cuatrimestres o cursos.
+
+    5.3 **Candidatas a tener relaciones instrumentales**. Son relaciones en las que una asignatura hace referencia explícita a otra como requisito o recomendación.
+
+    5.4 **Candidatas a tener miradas transdisciplinares**. Son relaciones en las que las asignaturas involucradas abordan aspectos de la realidad similares (Ej. suelo), pero con enfoques disciplinares diferentes (ej. microbiología y ecología).
+
+6.  Análisis de resultados y propuestas de mejora.
+
+Este documento muestra el procedimiento seguido tras aplicar la metodología anterior. Es un documento ejecutable y reproducible en R.
+
+# Descarga automática de guías docentes
+
+El análisis de la estructura curricular del Grado en Ciencias Ambientales se basa en la información contenida en las guías docentes oficiales de la Universidad de Córdoba (UCO) para el curso académico 2025-2026.
+
+Para garantizar la reproducibilidad de la auditoría y mitigar los sesgos derivados de la recolección manual de datos, se ha implementado un procedimiento de raspado web (*web scraping*) y descarga masiva automatizada. El siguiente bloque de código accede al catálogo oficial de la Facultad de Ciencias, indexa los enlaces hipertextuales de los documentos PDF correspondientes a la última versión en castellano y los almacena en el entorno local de trabajo.
+
+Durante su ejecución se observan algunos errores. Hay algunos documentos que, aunque constan como PDFs en la web, no lo son.
+
+::: callout-note
+## Requisitos previos de ejecución
+
+Para ejecutar las celdas de este bloque en un entorno local de RStudio, es necesario contar con las librerías `tidyverse` y `rvest` previamente instaladas en el sistema a través de la consola de R empleando el comando `install.packages(c("tidyverse", "rvest"))`.
+:::
+
+```{r}
+#| label: configuracion-entorno-y-descarga
+#| eval: false
+#| echo: true
+
+# ==============================================================================
+# 1. Establecimiento de rutas de trabajo y directorios de destino
+# ==============================================================================
+
+# Creamos la ruta de destino de forma relativa para garantizar que funcione en cualquier PC
+output_dir <- file.path("guias")
+
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# ==============================================================================
+# 2. Carga de paquetes necesarios
+# ==============================================================================
+library(tidyverse)
+library(rvest)
+
+# ==============================================================================
+# 3. Extracción y filtrado de enlaces de la web de la UCO
+# ==============================================================================
+url_catalogo <- "https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales"
+
+webpage <- read_html(url_catalogo)
+
+enlaces <- webpage %>%
+  html_nodes("a") %>% 
+  html_attr("href")
+
+# Aislamiento de documentos PDF específicos del curso 2025-26 en castellano
+enlaces_pdf <- enlaces %>%
+  keep(~ str_detect(.x, "(?i)\\.pdf$")) %>% 
+  keep(~ str_detect(.x, "es_2025-26")) %>% 
+  na.omit()
+
+# Estandarización de URLs hacia protocolo seguro absoluto
+enlaces_finales <- if_else(
+  str_starts(enlaces_pdf, "http"),
+  str_replace(enlaces_pdf, "^http://", "https://"),
+  paste0("https://www.uco.es", enlaces_pdf)
+) %>% unique()
+
+# ==============================================================================
+# 4. Ingesta de datos con detección de errores y descarga masiva de pdfs
+# ==============================================================================
+nombres_destinos <- file.path(output_dir, basename(enlaces_finales))
+
+walk2(enlaces_finales, nombres_destinos, ~ {
+  cat("Descargando archivo:", basename(.x), "\n")
+  tryCatch({
+    # Se utiliza el método nativo por defecto para maximizar portabilidad multiplataforma
+    download.file(.x, destfile = .y, mode = "wb", quiet = TRUE)
+    Sys.sleep(0.5) # Pausa de cortesía estructural para evitar denegaciones de servicio
+  }, error = function(e) {
+    message("Fallo crítico en la descarga del documento: ", basename(.x))
+  })
+})
+
+cat("Proceso de ingesta finalizado. Archivos almacenados en la ruta relativa:", output_dir, "\n")
+```
+
+Tras el proceso anterior, borrar manualmente el archivo llamado `286100es_2025-26.pdf`. Se trata de la guía docente de las prácticas en empresa. Dicha asignatura no tiene contenidos propios, por lo que no tiene sentido incluirla en este análisis.
