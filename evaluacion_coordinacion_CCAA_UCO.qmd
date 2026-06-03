@@ -35,6 +35,8 @@ execute:
 
 El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
 
+# Metodología propuesta
+
 La metodología propuesta se basa en técnicas de minería de texto y análisis de similitud del texto contenido en las guías docentes. Implica, en términos generales, los siguientes pasos:
 
 1.  Descarga automática de las guías docentes oficiales en formato PDF desde el sitio web de la UCO.
@@ -57,9 +59,9 @@ La metodología propuesta se basa en técnicas de minería de texto y análisis 
 
 6.  Análisis de resultados y propuestas de mejora.
 
-Este documento muestra el procedimiento seguido tras aplicar la metodología anterior. Es un documento ejecutable y reproducible en R.
+Este documento muestra el procedimiento seguido tras aplicar la metodología anterior. Es un documento ejecutable y reproducible en R. Los detalles metodológicos de cada uno de los pasos descritos anteriormente, se muestran en las siguientes secciones.
 
-# Descarga automática de guías docentes
+## Descarga automática de guías docentes
 
 El análisis de la estructura curricular del Grado en Ciencias Ambientales se basa en la información contenida en las guías docentes oficiales de la Universidad de Córdoba (UCO) para el curso académico 2025-2026.
 
@@ -79,7 +81,7 @@ Para ejecutar las celdas de este bloque en un entorno local de RStudio, es neces
 #| echo: true
 
 # ==============================================================================
-# 1. Establecimiento de rutas de trabajo y directorios de destino
+# 2.1.1. Establecimiento de rutas de trabajo y directorios de destino
 # ==============================================================================
 
 # Creamos la ruta de destino de forma relativa para garantizar que funcione en cualquier PC
@@ -90,13 +92,13 @@ if (!dir.exists(output_dir)) {
 }
 
 # ==============================================================================
-# 2. Carga de paquetes necesarios
+# 2.1.2 Carga de paquetes necesarios
 # ==============================================================================
 library(tidyverse)
 library(rvest)
 
 # ==============================================================================
-# 3. Extracción y filtrado de enlaces de la web de la UCO
+# 2.1.3. Extracción y filtrado de enlaces de la web de la UCO
 # ==============================================================================
 url_catalogo <- "https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales"
 
@@ -120,7 +122,7 @@ enlaces_finales <- if_else(
 ) %>% unique()
 
 # ==============================================================================
-# 4. Ingesta de datos con detección de errores y descarga masiva de pdfs
+# 2.1.4. Ingesta de datos con detección de errores y descarga masiva de pdfs
 # ==============================================================================
 nombres_destinos <- file.path(output_dir, basename(enlaces_finales))
 
@@ -139,3 +141,179 @@ cat("Proceso de ingesta finalizado. Archivos almacenados en la ruta relativa:", 
 ```
 
 Tras el proceso anterior, borrar manualmente el archivo llamado `286100es_2025-26.pdf`. Se trata de la guía docente de las prácticas en empresa. Dicha asignatura no tiene contenidos propios, por lo que no tiene sentido incluirla en este análisis.
+
+## Extracción textual y normalización del corpus
+
+El siguiente paso, una vez descargados los archivos de las guías docentes, consiste en desestructurar los archivos PDF para crear una base de datos relacional homogénea. Se extraen de forma síncrona los metadatos administrativos (código, curso y cuatrimestre). También se extraen varias secciones cuyo contenido que servirá para el análisis semántico propiamente dicho. 
+
+
+
+```{r}
+#| label: paquetes-rutas-relativas
+#| eval: true
+#| echo: true
+
+# ==============================================================================
+# 2.2.1. Carga de paquetes y control de rutas relativas
+# ==============================================================================
+
+library(pdftools)
+library(tidyverse)
+library(quanteda)
+
+carpeta_pdfs <- file.path("guias")
+archivos_pdf <- list.files(carpeta_pdfs, pattern = "\\.pdf$", full.names = TRUE)
+```
+
+
+## Creación de tabla con nombres de asignaturas, sus códigos y sus siglas.
+
+Este paso es importante y no automático. Los nombres de las asignaturas suelen ser largos. Eso hace que su visualización en gráficas no siempre sea fácil. Por eso es preferible usar la abreviatura de la asignatura para dichas visualizaciones. En el horario oficial de la Facultad de Ciencias de la UCO hay ya una lista de abreviaturas para cada asignatura. No he encontrado una forma fácil de automatizar el proceso de descarga de las siglas de cada asignaturas, así que se procede así:
+
++ Visitar la web de los horarios ([esta](https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales)).
+
++ Ir copiando los nombres, códigos y siglas de las asignaturas de cada curso y cuatrimestre.
+
++ Ir pegando los resultados incrementalmente en un archivo markdown o en un excel directamente.
+
++ Exportar el contenido a un archivo `.csv` y guardarlo en la carpeta `datos_control` con el nombre `codigos_nombres_siglas_asignaturas_web.csv`.
+
+La siguiente línea de código crea el objeto que será usado a continuación para importar el archivo csv mencionado.
+
+```{r}
+#| label: carga-nombres-siglas-asignaturas
+#| eval: true
+#| echo: true
+
+# ==============================================================================
+# 2.3.1. Carga en R de archivo csv obtenido de los horarios oficiales.
+# ==============================================================================
+
+siglas_nombres_asignaturas <- file.path("datos_control", "codigos_nombres_siglas_asignaturas_web.csv")
+```
+
+## Extracción de texto, normalización y creación de corpus unificado
+
+El siguiente paso implica la lectura secuencial de todos los archivos pdf de las guías docentes para extraer de ellos la siguiente información:
+
++ Breve descripción de los contenidos: Esta sección describe muy sucintamente en qué consiste la asignatura en cuestión.
+
++ Conocimientos previos necesarios: Consta de "requisitos previos establecidos en el plan de estudios" y de "recomendaciones". Esta información se usará para identificar relaciones de dependencia explícitas entre asignaturas.
+
++ Contenidos teóricos: Se trata de la parte de la guía docente que describe los contenidos teóricos que se imparten en la asignatura.
+
++ Contenidos prácticos: Se trata de la parte de la guía docente que describe los contenidos prácticos que se imparten en la asignatura.
+
+
+```{r}
+#| label: extraccion-textual-y-normalizacion
+#| eval: true
+#| echo: true
+# ==============================================================================
+# 2.4.1. Se inicia el bucle de extracción de texto de las guías
+# ==============================================================================
+
+
+datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
+  
+  texto_completo <- pdf_text(ruta) %>% 
+    paste(collapse = " ") %>% 
+    str_replace_all("\\s+", " ")
+  
+  # ==============================================================================
+  # 2.4.1.1. Extracción de metadatos básicos de cada asignatura
+  # ==============================================================================
+  pos_asig <- str_locate(texto_completo, "(?i)Denominación:")[1, "end"]
+  asig_val <- if(!is.na(pos_asig)) {
+    str_sub(texto_completo, start = pos_asig + 1, end = pos_asig + 150) %>% 
+      str_split("(?i)Código:") %>% .[[1]] %>% .[1] %>% str_trim()
+  } else { NA_character_ }
+  
+  pos_cod <- str_locate(texto_completo, "(?i)Código:")[1, "end"]
+  cod_val <- if(!is.na(pos_cod)) {
+    str_sub(texto_completo, start = pos_cod + 1, end = pos_cod + 30) %>% 
+      str_extract("\\d+") %>% str_trim()
+  } else { NA_character_ }
+  
+  pos_curso <- str_locate(texto_completo, "(?i)Curso:")[1, "end"]
+  curso_val <- if(!is.na(pos_curso)) {
+    str_sub(texto_completo, start = pos_curso + 1, end = pos_curso + 20) %>% 
+      str_extract("\\d+") %>% as.numeric()
+  } else { NA_real_ }
+  
+  pos_duracion <- str_locate(texto_completo, "(?i)Duración:")[1, "end"]
+  cuat_val <- if(!is.na(pos_duracion)) {
+    str_sub(texto_completo, start = pos_duracion + 1, end = pos_duracion + 60) %>% 
+      str_trim() %>% 
+      str_extract("^\\w+\\s+\\w+")
+  } else { NA_character_ }
+  
+  # ==============================================================================
+  # 4.1.1.2 Extracción de secciones específicas de contenido para el análisis semántico
+  # ==============================================================================
+  recortar_seccion <- function(texto, baliza_inicio, baliza_fin) {
+    ini <- str_locate(texto, regex(baliza_inicio, ignore_case = TRUE))[1, "end"]
+    fin <- str_locate(texto, regex(baliza_fin, ignore_case = TRUE))[1, "start"]
+    if (!is.na(ini) & !is.na(fin) & (fin > ini)) {
+      return(str_sub(texto, start = ini + 1, end = fin - 1) %>% str_trim())
+    } else { 
+      return(NA_character_) 
+    }
+  }
+  
+  # Nuevas extracciones de requisitos normativos solicitadas
+  req_val  <- recortar_seccion(texto_completo, "Requisitos previos establecidos en el plan de estudios", "Recomendaciones")
+  reco_val <- recortar_seccion(texto_completo, "Recomendaciones", "Programa de la asignatura")
+  
+  # Secciones de contenidos biofísicos y temarios
+  desc_cont <- recortar_seccion(texto_completo, "Breve descripción de los contenidos", "Conocimientos previos necesarios")
+  cont_teor <- recortar_seccion(texto_completo, "1\\. Contenidos teóricos", "2\\. Contenidos prácticos")
+  cont_prac <- recortar_seccion(texto_completo, "2\\. Contenidos prácticos", "Bibliografía")
+  
+  tibble(
+    archivo                 = basename(ruta),
+    nombre_asignatura      = asig_val,
+    codigo                 = cod_val,
+    curso                  = curso_val,
+    cuatrimestre           = cuat_val,
+    requisitos             = req_val,
+    recomenda              = reco_val,
+    descripcion_contenidos = desc_cont,
+    contenidos_teoricos    = cont_teor,
+    contenidos_practicos   = cont_prac
+  )
+})
+
+# ==============================================================================
+# 4.1.1.3 Integración de siglas y códigos con nombres de asignaturas para unificación de identificadores
+# ==============================================================================
+if (file.exists(siglas_nombres_asignaturas)) {
+  diccionario_siglas <- read_csv2(siglas_nombres_asignaturas, show_col_types = FALSE) %>%
+    rename_all(tolower) %>%
+    mutate(
+      codigo_clean = as.character(str_extract(codigo, "\\d+")),
+      sigla_clean  = str_trim(as.character(sigla))
+    ) %>%
+    filter(!is.na(codigo_clean) & !is.na(sigla_clean)) %>%
+    distinct(codigo_clean, sigla_clean)
+  
+  datos_guias <- datos_guias_inicial %>%
+    left_join(diccionario_siglas, by = c("codigo" = "codigo_clean")) %>%
+    mutate(sigla = if_else(is.na(sigla_clean), codigo, sigla_clean)) %>%
+    select(-sigla_clean)
+} else {
+  datos_guias <- datos_guias_inicial %>% mutate(sigla = codigo)
+  cat("Advertencia: No se encontró el archivo CSV de siglas. Usando códigos como identificador.\n")
+}
+
+# ==============================================================================
+# 4.1.2 Consolidación del corpus
+# ==============================================================================
+corpus_busqueda <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  mutate(
+    texto_unificado = tolower(paste(descripcion_contenidos, contenidos_teoricos, contenidos_practicos, sep = " ")),
+    nombre_limpio   = tolower(str_trim(nombre_asignatura))
+  )
+```
+
