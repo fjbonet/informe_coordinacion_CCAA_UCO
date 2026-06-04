@@ -571,7 +571,7 @@ A continuación se muestran estos mismos resultados en un gráfico de red.
 #| fig-width: 11
 #| fig-height: 7
 
-# 1. Asegurar la carga de librerías en este entorno local
+# librerías necesarias (para que se renderice el gráfico bien)
 library(tidyverse)
 library(tidygraph)
 library(ggraph)
@@ -588,7 +588,7 @@ aristas_base <- tabla_relaciones_explicitas_verificadas %>%
     codigo_2 = as.character(codigo_2)
   )
 
-# 3. GENERACIÓN DE LA REJILLA DE COORDENADAS (X, Y)
+# Rejilla de coordenadas
 nodos_posicionados <- nodos_base %>%
   distinct(codigo, sigla, nombre_asignatura, curso, cuatrimestre) %>%
   mutate(
@@ -612,7 +612,7 @@ nodos_posicionados <- nodos_base %>%
                       pos_secuencial + max(pos_secuencial) + 1.5)
   )
 
-# 4. VINCULACIÓN GEOMÉTRICA DE ARISTAS
+# Vinculación geométrica de aristas
 aristas_triple_capa <- aristas_base %>%
   select(from = codigo_1, to = codigo_2) %>%
   left_join(nodos_posicionados %>% select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
@@ -631,15 +631,17 @@ aristas_triple_capa <- aristas_base %>%
 nodes_final <- nodos_posicionados %>% 
   rename(id = codigo)
 
-# 5. ENSAMBLAJE TOPOLÓGICO DEL GRAFO
+# Ensamblaje del gráfico
 grafo_objeto_final <- tbl_graph(
   nodes = nodes_final, 
   edges = aristas_triple_capa, 
   directed = FALSE
 )
 
-# 6. RENDERIZACIÓN DIRECTA DEL LIENZO EN EL INFORME HTML
-ggraph(grafo_objeto_final, layout = "manual", x = x_coord, y = y_coord) +
+# Renderización del gráfico tanto en el informe de quarto como en pdf
+
+# Creamos el objeto gráfico completo en memoria
+mapa_nominal_final <- ggraph(grafo_objeto_final, layout = "manual", x = x_coord, y = y_coord) +
   geom_edge_link(
     aes(filter = (tipo_relacion == "Vertical (Cursos diferentes)"), color = tipo_relacion),
     start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'), alpha = 0.5, width = 0.4
@@ -684,6 +686,24 @@ ggraph(grafo_objeto_final, layout = "manual", x = x_coord, y = y_coord) +
     legend.box = "horizontal",
     panel.background = element_rect(fill = "#FFFFFF", color = NA)
   )
+
+# Aseguramos la existencia de la carpeta de destino para no ensuciar la raíz
+carpeta_salida <- "outputs"
+if (!dir.exists(carpeta_salida)) dir.create(carpeta_salida, recursive = TRUE)
+
+# Exportación silenciosa a pdf
+ggsave(
+  filename = file.path(carpeta_salida, "mapa_coordinacion_explicita_CCAA.pdf"),
+  plot = mapa_nominal_final,
+  width = 11,
+  height = 7,
+  device = "pdf"
+)
+
+
+# Esto fuerza a knitr a pintar el gráfico en el cuerpo del informe HTML
+mapa_nominal_final
+
 ```
 
 
