@@ -457,13 +457,13 @@ tabla_relaciones_explicitas_verificadas <- tabla_relaciones_explicitas %>%
 
 Los resultados de esta fase se muestran en [esta](#sec-resultado-coord-explicita) sección. 
 
-## Identificación automática de relaciones de dependencia entre asignaturas
+## Identificación automática de relaciones de dependencia entre asignaturas {#sec-metodo-dependencia}
 
 Además de la coordinación explícita descrita anteriormente, es posible que las asignaturas tengan relaciones de dependencia. Es decir, puede que para recibir una asignatura, los estudiantes tengan que haber cursado otra u otras. Es importante identificar estas relaciones porque ponen de manifiesto una característica importante. Son las llamadas relaciones instrumentales entre asignaturas. Una asignatura es instrumentalmente necesaria para otra cuando proporciona un andamiaje conceptual sin el cual los contenidos de la segunda carecen de estructura cognitiva donde integrarse  ([Stavrinides P. & Kinstantin M. Zuev, 2023](https://link.springer.com/article/10.1007/s41109-023-00543-w)). La razón de ser de estas dependencias está en un hecho contrastado en multitud de situaciones: el aprendizaje nuevo se retiene de forma más efectiva cuando se conecta deliberadamente con estructuras congnitivas (aprendizajes) ya existentes. 
 
 Para tratar de identificar estas relaciones de interdependencia entre asignaturas, usamos las secciones "requisitos previos establecidos en el plan de estudios" y "recomendaciones" de las guías docentes. Es en esas secciones en las que los profesores suelen indicar que para cursar su asignatura es necesario haber cursado otras. Así que, buscamos automáticamente en cada guía docente menciones a otras asignaturas en estos apartados. 
 
-El siguiente bloque de código muestra cómo hacer lo anterior:
+El siguiente bloque de código muestra cómo hacer lo anterior. Y los resultados se muestran [aquí]({#sec-resultado-dependencia})
 
 
 ```{r}
@@ -588,7 +588,8 @@ rmarkdown::paged_table(vista_previa_corpus, options = list(rows.print = 10, max.
 
 ## Coordinación explícita existente en el grado {#sec-resultado-coord-explicita}
 
-El resultado de aplicar [esta](#sec-metodo-coord-explicita) fase de la metodología propuesta implica, en primer lugar, la siguiente tabla. Muestra las relaciones explícitas identificadas automáticamente:
+
+El resultado de aplicar [esta](#sec-metodo-coord-explicita) fase de la metodología propuesta genera, en primer lugar, la siguiente tabla. Muestra las relaciones explícitas identificadas automáticamente:
 
 
 ```{r}
@@ -614,7 +615,9 @@ knitr::kable(
 )
 ```
 
+
 Como se mencionó en la metodología, las relaciones identificadas automáticamente pueden contener falsos positivos. Puede que una asignatura mencione una disciplina que tenga el mismo nombre que otra asignatura. Para evitar eso, es necesario revisar a mano todas las relaciones identificadas automáticamente. El resultado de esa revisión genera la siguiente tabla de relaciones explícitas confirmadas:
+
 
 ```{r}
 #| label: visualizacion-relaciones-explicitas-verificadas
@@ -638,6 +641,7 @@ knitr::kable(
   align = c("c", "l", "c", "l") # Centrado para siglas, izquierda para nombres
 )
 ```
+
 
 A continuación se muestran estos mismos resultados en un gráfico de red. 
 
@@ -784,6 +788,7 @@ ggsave(
 mapa_nominal_final
 
 ```
+
 El gráfico anterior se puede descargar [aquí](https://raw.githubusercontent.com/fjbonet/informe_coordinacion_CCAA_UCO/main/outputs/mapa_coordinacion_explicita_CCAA.pdf) en formato pdf.
 
 Observamos que las únicas relaciones de coordinación explícitamente mencionadas en las guías docentes son las siguientes:
@@ -795,6 +800,213 @@ Observamos que las únicas relaciones de coordinación explícitamente mencionad
 
 + Ecología (E) y Cartografía aplicada (CA)
 
+
+## Relaciones de dependencia entre asignaturas {#sec-resultado-dependencia}
+
+Tras el análisis descrito [aquí]({#sec-metodo-dependencia}) se obtienen una serie de relaciones de dependencia entre asignaturas. Se muestran en la siguiente tabla.
+
+
+```{r}
+#| label: tabla-resultados-dependencias-dirigidas
+#| eval: true
+#| echo: false
+
+# 1. CARGA LOCAL DE LIBRERÍAS (Garantiza el funcionamiento aislado)
+library(tidyverse)
+
+# 2. ENCAPSULACIÓN Y BLINDAJE DEL OBJETO DE ORIGEN
+# Aseguramos que los factores o mutaciones intermedias del documento no alteren la estructura
+tabla_resultados_dep <- relaciones_dependencia_detectadas %>%
+  mutate(
+    sigla_origen   = as.character(sigla_origen),
+    asig_origen    = as.character(asig_origen),
+    sigla_destino  = as.character(sigla_destino),
+    asig_destino   = as.character(asig_destino)
+  ) %>%
+  # Optimización semántica de cabeceras para reflejar el flujo de la dependencia
+  select(
+    `Sigla dependiente`   = sigla_origen,
+    `Asignatura dependiente` = asig_origen,
+    `Sigla instrumental`         = sigla_destino,
+    `Asignatura instrumental`   = asig_destino
+  ) %>%
+  arrange(`Sigla dependiente`)
+
+# 3. RENDERIZADO INTERACTIVO PAGINADO
+# 2. Renderizado con ajuste adaptativo automático de anchura (CSS Autowidth)
+knitr::kable(
+  tabla_resultados_dep, 
+  format = "html",
+  align = c("c", "l", "c", "l") # Centrado para siglas, izquierda para nombres
+)
+
+
+
+```
+
+
+Y también en el siguiente gráfico que puede descargarse aquí en formato pdf.
+
+
+```{r}
+#| label: grafico-red-dependencias-dirigidas
+#| code-fold: true
+#| eval: true
+#| echo: true
+#| fig-width: 11
+#| fig-height: 7
+
+# 1. CARGA LOCAL DE DEPENDENCIAS CRÍTICAS
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+
+# 2. ENCAPSULACIÓN Y BLINDAJE DE DATOS DE ENTRADA
+# Forzamos cadenas de caracteres para blindar los cruces (joins) frente a bloques intermedios
+nodos_base_dep <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  mutate(codigo = as.character(codigo))
+
+aristas_base_dep <- relaciones_dependencia_detectadas %>%
+  mutate(
+    codigo_origen  = as.character(codigo_origen),
+    codigo_destino = as.character(codigo_destino)
+  )
+
+# 3. RECONSTRUCCIÓN DE LA REJILLA DE COORDENADAS (X, Y)
+nodos_posicionados_dep <- nodos_base_dep %>%
+  distinct(codigo, sigla, nombre_asignatura, curso, cuatrimestre) %>%
+  mutate(
+    curso_num = as.numeric(str_extract(curso, "\\d+")),
+    cuat_clean = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ 1,
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ 2,
+      TRUE ~ 1
+    ),
+    sigla_display = toupper(as.character(sigla))
+  ) %>%
+  filter(!is.na(curso_num)) %>%
+  arrange(curso_num, cuat_clean, codigo) %>%
+  group_by(curso_num, cuat_clean) %>%
+  mutate(pos_secuencial = row_number()) %>%
+  ungroup() %>%
+  mutate(
+    y_coord = curso_num,
+    x_coord = if_else(cuat_clean == 1, 
+                      pos_secuencial, 
+                      pos_secuencial + max(pos_secuencial) + 1.5)
+  )
+
+# 4. ENRUTAMIENTO ASIMÉTRICO DE ARISTAS (DIRECCIÓN DE LA FLECHA)
+aristas_dirigidas <- aristas_base_dep %>%
+  select(from = codigo_origen, to = codigo_destino) %>%
+  left_join(nodos_posicionados_dep %>% select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
+  left_join(nodos_posicionados_dep %>% select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
+  filter(!is.na(from) & !is.na(to)) %>%
+  mutate(
+    tipo_relacion = case_when(
+      curso_from != curso_to ~ "Vertical (Cursos diferentes)",
+      curso_from == curso_to & cuat_from == cuat_to ~ "Horizontal intracuatrimestre",
+      curso_from == curso_to & cuat_from != cuat_to ~ "Horizontal intercuatrimestre",
+      TRUE ~ "Vertical (Cursos diferentes)"
+    )
+  )
+
+nodes_final_dep <- nodos_posicionados_dep %>% 
+  rename(id = codigo)
+
+# Ensamblaje del objeto topológico forzando la direccionalidad (directed = TRUE)
+grafo_dirigido_final <- tbl_graph(
+  nodes = nodes_final_dep, 
+  edges = aristas_dirigidas, 
+  directed = TRUE
+)
+
+# 5. CONFIGURACIÓN DEL LIENZO Y CONSTRUCCIÓN VECTORIAL DE LA RED
+mapa_dependencias_plot <- ggraph(grafo_dirigido_final, layout = "manual", x = x_coord, y = y_coord) +
+  
+  # CAPA 1: Dependencias inter-curso -> Rectas con punta de flecha
+  geom_edge_link(
+    aes(filter = (tipo_relacion == "Vertical (Cursos diferentes)"), color = tipo_relacion),
+    # Ajuste milimétrico para que la flecha muera en el borde del círculo naranja (3mm)
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.6, width = 0.4,
+    arrow = arrow(length = unit(2, 'mm'), type = "closed") # Punta de flecha ejecutiva cerrada
+  ) +
+  
+  # CAPA 2: Dependencias intracuatrimestre -> Arcos superiores con punta de flecha
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intracuatrimestre"), color = tipo_relacion),
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.8, width = 0.66, strength = 0.08,
+    arrow = arrow(length = unit(2, 'mm'), type = "closed")
+  ) +
+  
+  # CAPA 3: Dependencias intercuatrimestre -> Arcos inferiores con punta de flecha
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intercuatrimestre"), color = tipo_relacion),
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.8, width = 0.66, strength = -0.08,
+    arrow = arrow(length = unit(2, 'mm'), type = "closed")
+  ) +
+  
+  # Nodos de asignatura uniformes
+  geom_node_point(color = "#E67E22", size = 6) +
+  
+  # Siglas de asignaturas (idéntica tipografía y vjust que el mapa anterior)
+  geom_node_text(aes(label = sigla_display), vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50") +
+  
+  # Asignación de la paleta cromática corporativa
+  scale_edge_color_manual(
+    name = "Relaciones de dependencia",
+    values = c(
+      "Vertical (Cursos diferentes)"   = "#7F8C8D", 
+      "Horizontal intracuatrimestre"   = "#145A32", 
+      "Horizontal intercuatrimestre"   = "#2ECC71"  
+    )
+  ) +
+  
+  scale_y_continuous(breaks = 1:4, labels = c("1º Curso", "2º Curso", "3º Curso", "4º Curso"), limits = c(0.5, 4.5)) +
+  
+  labs(
+    title = "Relaciones de dependencias entre asignaturas de Ciencias Ambientales. Curso 25-26",
+    subtitle = "Análisis de requisitos y recomendaciones de haber cursado asignaturas en las guías docentes",
+    x = " 1er Cuatrimestre                               |              2º Cuatrimestre →", 
+    y = ""
+  ) +
+  
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "#EBF0F1", linetype = "solid"),
+    axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.x = element_text(face = "bold", size = 10, color = "#7F8C8D", margin = margin(t = 12)),
+    axis.text.y = element_text(face = "bold", size = 10, color = "#2C3E50"),
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, color = "#7F8C8D", margin = margin(b = 15)),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold", size = 9, color = "#2C3E50"),
+    legend.text = element_text(size = 8.5, color = "#34495E"),
+    legend.box = "horizontal",
+    panel.background = element_rect(fill = "#FFFFFF", color = NA)
+  )
+
+# 6. EXPORTACIÓN PARALELA A LA CARPETA OUTPUTS (PDF VECTORIAL)
+carpeta_outputs <- "outputs"
+if (!dir.exists(carpeta_outputs)) dir.create(carpeta_outputs, recursive = TRUE)
+
+ggsave(
+  filename = file.path(carpeta_outputs, "mapa_dependencias_CCAA.pdf"),
+  plot = mapa_dependencias_plot,
+  width = 11,
+  height = 7,
+  device = "pdf"
+)
+
+# 7. INVOCACIÓN PARA LA CAPTURA NATIVA DE QUARTO (INFORME HTML)
+mapa_dependencias_plot
+
+```
 
 
 
