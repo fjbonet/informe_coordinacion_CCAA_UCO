@@ -82,7 +82,7 @@ Para ejecutar las celdas de este bloque en un entorno local de RStudio, es neces
 #| echo: true
 
 # ==============================================================================
-# 2.1.1. Establecimiento de rutas de trabajo y directorios de destino
+# Establecimiento de rutas de trabajo y directorios de destino
 # ==============================================================================
 
 # Creamos la ruta de destino de forma relativa para garantizar que funcione en cualquier PC
@@ -93,13 +93,13 @@ if (!dir.exists(output_dir)) {
 }
 
 # ==============================================================================
-# 2.1.2 Carga de paquetes necesarios
+# Carga de paquetes necesarios
 # ==============================================================================
 library(tidyverse)
 library(rvest)
 
 # ==============================================================================
-# 2.1.3. Extracción y filtrado de enlaces de la web de la UCO
+# Extracción y filtrado de enlaces de la web de la UCO
 # ==============================================================================
 url_catalogo <- "https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales"
 
@@ -123,7 +123,7 @@ enlaces_finales <- if_else(
 ) %>% unique()
 
 # ==============================================================================
-# 2.1.4. Ingesta de datos con detección de errores y descarga masiva de pdfs
+# Ingesta de datos con detección de errores y descarga masiva de pdfs
 # ==============================================================================
 nombres_destinos <- file.path(output_dir, basename(enlaces_finales))
 
@@ -155,7 +155,7 @@ El siguiente paso, una vez descargados los archivos de las guías docentes, cons
 #| echo: true
 
 # ==============================================================================
-# 2.2.1. Carga de paquetes y control de rutas relativas
+# Carga de paquetes y control de rutas relativas
 # ==============================================================================
 
 library(pdftools)
@@ -187,14 +187,14 @@ La siguiente línea de código crea el objeto que será usado a continuación pa
 #| echo: true
 
 # ==============================================================================
-# 2.3.1. Carga en R de archivo csv obtenido de los horarios oficiales.
+# Carga en R de archivo csv obtenido de los horarios oficiales.
 # ==============================================================================
 
 siglas_nombres_asignaturas <- file.path("datos_control",
                                         "codigos_nombres_siglas_asignaturas_web.csv")
 ```
 
-## Extracción de texto, normalización y creación de corpus unificado
+## Extracción de texto, normalización y creación de corpus unificado {#sec-metodo-corpus}
 
 El siguiente paso implica la lectura secuencial de todos los archivos pdf de las guías docentes para extraer de ellos la siguiente información:
 
@@ -206,13 +206,15 @@ El siguiente paso implica la lectura secuencial de todos los archivos pdf de las
 
 + Contenidos prácticos: Se trata de la parte de la guía docente que describe los contenidos prácticos que se imparten en la asignatura.
 
+El resultado de esta fase se puede ver [aquí](#sec-resultado-corpus)
+
 
 ```{r}
 #| label: extraccion-textual-y-normalizacion
 #| eval: true
 #| echo: true
 # ==============================================================================
-# 2.4.1. Se inicia el bucle de extracción de texto de las guías
+# Se inicia el bucle de extracción de texto de las guías
 # ==============================================================================
 
 
@@ -223,7 +225,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
     str_replace_all("\\s+", " ")
   
   # ============================================================================
-  # 2.4.1.1. Extracción de metadatos básicos de cada asignatura
+  # Extracción de metadatos básicos de cada asignatura
   # ============================================================================
   pos_asig <- str_locate(texto_completo, "(?i)Denominación:")[1, "end"]
   asig_val <- if(!is.na(pos_asig)) {
@@ -251,7 +253,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
   } else { NA_character_ }
   
   # ============================================================================
-  # 4.1.1.2 Extracción de secciones específicas de contenido para el análisis 
+  # Extracción de secciones específicas de contenido para el análisis 
   # ============================================================================
   recortar_seccion <- function(texto, baliza_inicio, baliza_fin) {
     ini <- str_locate(texto, regex(baliza_inicio, ignore_case = TRUE))[1, "end"]
@@ -291,7 +293,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
 })
 
 # ==============================================================================
-# 4.1.1.3 Integración de siglas y códigos con nombres de asignaturas 
+# Integración de siglas y códigos con nombres de asignaturas 
 # ==============================================================================
 if (file.exists(siglas_nombres_asignaturas)) {
   diccionario_siglas <- read_csv2(siglas_nombres_asignaturas, show_col_types = FALSE) %>%
@@ -314,7 +316,7 @@ if (file.exists(siglas_nombres_asignaturas)) {
 }
 
 # ==============================================================================
-# 4.1.2 Consolidación del corpus
+# Consolidación del corpus
 # ==============================================================================
 corpus_busqueda <- datos_guias %>%
   filter(!is.na(nombre_asignatura)) %>%
@@ -326,10 +328,143 @@ corpus_busqueda <- datos_guias %>%
 ```
 
 
+## Identificación semiautomática de procesos de coordinación explícitos {#sec-metodo-coord-explicita}
 
-### Tabla con los datos extraidos
+El primer paso una vez que se ha construido el Corpus de conocimiento, es identificar los actos de coordinación explícitos que hay en el grado. 
 
-El resultado del proceso anterior se puede ver a continuación. Se trata de una matriz con tantas filas como asignaturas. Los campos representan los atributos que caracterizan a cada asignatura: datos generales y contenidos que se analizarán en los siguientes bloques.
+Consideramos que hay coordinación real cuando en una guía docente se menciona explícitamente el nombre de otra asignatura. Esta condición debe de cumplirse o bien en la sección de "contenidos teóricos" o en la de "contenidos prácticos". Asumimos que esto es coordinación explícita porque la mención de asignaturas en las secciones de contenidos implican que hay una relación directa entre las asignaturas. Es decir, sus contenidos están tan integrados que los profesores consideran importante hacer menciones a otras asignaturas cuando explican los contenidos de la suya. 
+
+Para identificar automáticamente estas relaciones, procedemos de la siguiente forma:
+
++ Generamos una tabla con los nombres de las asignaturas.
+
++ Buscamos en las secciones de contenidos de las guías docentes los nombres de las asignaturas.
+
++ Se crea una tabla final `tabla_relaciones_explicitas`que lista las relaciones entre asignaturas en las que hay menciones explícitas de las mismas. Cada fila de esta tabla se define por los nombres de las dos asignaturas que son mencionadas en las guías docentes. No se contempla la cardinalidad en esta relación. Es decir, una relación se considera como de "coordinación real" aunque las menciones no sean mutuas. Si A menciona a B, pero B no menciona a A, se sigue considerando coordinación real. 
+
+
+
+```{r}
+#| label: relaciones-explicitas-nominales
+#| eval: true
+#| echo: true
+
+# ==============================================================================
+# Creación de tablas que usamos para la búsqueda
+# ==============================================================================
+
+# Creamos un texto unificado , combinando solo los contenidos 
+corpus_menciones <- corpus_busqueda %>%
+  select(codigo, sigla, nombre_asignatura, nombre_limpio, 
+         descripcion_contenidos, contenidos_teoricos, contenidos_practicos) %>%
+  mutate(
+    # Exclusión de requisitos y recomienda
+    texto_coordinacion_pura = tolower(paste(
+      coalesce(descripcion_contenidos, ""), 
+      coalesce(contenidos_teoricos, ""), 
+      coalesce(contenidos_practicos, ""), 
+      sep = " "
+    )),
+    # Limpieza de dobles espacios remanentes
+    texto_coordinacion_pura = str_replace_all(texto_coordinacion_pura, "\\s+", " ")
+  ) %>%
+  select(codigo, sigla, nombre_asignatura, nombre_limpio, texto_coordinacion_pura)
+
+
+# Creamos tabla con las asignaturas en las que buscamos mención explícita
+
+catalogo_objetivos <- corpus_menciones %>% 
+  select(codigo_target = codigo, sigla_target = sigla, nombre_target = nombre_asignatura, target_limpio = nombre_limpio)
+
+# ==============================================================================
+# Buscamos menciones explícitas entre corpus_menciones y catalogo_objetivos
+# ==============================================================================
+
+relaciones_detectadas <- map_df(1:nrow(corpus_menciones), function(i) {
+  origen_id     <- corpus_menciones$codigo[i]
+  origen_sigla  <- corpus_menciones$sigla[i]
+  origen_nombre <- corpus_menciones$nombre_asignatura[i]
+  texto_origen  <- corpus_menciones$texto_coordinacion_pura[i]
+  
+  map_df(1:nrow(catalogo_objetivos), function(j) {
+    target_id     <- catalogo_objetivos$codigo_target[j]
+    target_sigla  <- catalogo_objetivos$sigla_target[j]
+    target_nombre <- catalogo_objetivos$nombre_target[j]
+    target_string <- catalogo_objetivos$target_limpio[j]
+    
+    # Restricción: Una asignatura no puede coordinarse consigo misma
+    if (origen_id != target_id && str_detect(texto_origen, fixed(target_string))) {
+      return(tibble(
+        cod_A = origen_id, sigla_A = origen_sigla, asig_A = origen_nombre,
+        cod_B = target_id, sigla_B = target_sigla, asig_B = target_nombre
+      ))
+    }
+    return(NULL)
+  })
+})
+
+# Normalización y eliminación de redundancias en las relaciones
+tabla_relaciones_explicitas <- relaciones_detectadas %>%
+  rowwise() %>%
+  mutate(
+    codigo_1     = min(cod_A, cod_B),
+    codigo_2     = max(cod_A, cod_B),
+    sigla_1      = if_else(codigo_1 == cod_A, sigla_A, sigla_B),
+    sigla_2      = if_else(codigo_2 == cod_B, sigla_B, sigla_A),
+    asignatura_1 = if_else(codigo_1 == cod_A, asig_A, asig_B),
+    asignatura_2 = if_else(codigo_2 == cod_B, asig_B, asig_A)
+  ) %>%
+  ungroup() %>%
+  distinct(codigo_1, sigla_1, asignatura_1, codigo_2, sigla_2, asignatura_2) %>%
+  arrange(codigo_1)
+
+
+```
+
+Este procedimiento automático tiene un fallo potencial importante. En ocasiones los nombres de las asignaturas coinciden con nombres de disciplinas científicas completas. Por ejemplo "ecología". Según el método propuesto, el hecho de que en una guía docente aparezca el término "ecología" generaría automáticamente un evento de coordinación real. Sin embargo, esto puede también deberse a que un profesor ha mencionado una disciplina concreta y no a la asignatura en cuestión. Por ejemplo, es posible que en una guía docente aparezca el término "ecología" refiriéndose a la ecología de una especie de fauna. Esto no puede considerarse como coordinación real. Para resolver este problema, basta con revisar manualmente las distintas relaciones potenciales identificadas automáticamente.
+
+La revisión anterior implica identificar qué relaciones son reales y purgar el resto de la tabla generada anteriormente:
+
+
+
+```{r}
+#| label: filtro-experto-relaciones-explicitas
+#| eval: true
+#| echo: true
+
+# ==============================================================================
+# Filtro experto. Lista de relaciones reales confirmadas
+# ==============================================================================
+
+
+# Declaras las parejas de siglas que has comprobado a mano que son reales
+relaciones_verificadas <- list(
+  c("FA", "QA"),
+  c("E", "SIG"),
+  c("E", "CA"),
+  c("E", "GE")
+)
+
+# Forzamos a la tabla a quedarse solo con lo que tú apruebas
+tabla_relaciones_explicitas_verificadas <- tabla_relaciones_explicitas %>%
+  filter(map_lgl(seq_len(n()), function(i) {
+    siglas_fila <- c(sigla_1[i], sigla_2[i])
+    # Solo pasa el filtro si ambos elementos de alguna pareja verificada están en la fila
+    any(map_lgl(relaciones_verificadas, ~ all(.x %in% siglas_fila)))
+  }))
+
+```
+
+Los resultados de esta fase se muestran en [esta](#sec-resultado-coord-explicita) sección. 
+
+
+
+
+# Resultados
+
+## Base de datos con los contenidos de las guías docentes {#sec-resultado-corpus}
+
+El resultado de extraer el contenido de los archivos PDF de las guías docentes se puede ver a continuación (la metodología se describe [aquí](#sec-metodo-corpus)). Se trata de una matriz con tantas filas como asignaturas. Los campos representan los atributos que caracterizan a cada asignatura.
 
 
 ```{r}
@@ -338,7 +473,7 @@ El resultado del proceso anterior se puede ver a continuación. Se trata de una 
 #| eval: true
 
 # ==============================================================================
-# 1. SELECCIÓN Y OPTIMIZACIÓN DE CAMPOS PARA LA VISUALIZACIÓN EJECUTIVA
+# Selección de campos para la visualización 
 # ==============================================================================
 vista_previa_corpus <- corpus_busqueda %>%
   select(
@@ -364,12 +499,227 @@ vista_previa_corpus <- corpus_busqueda %>%
   )
 
 # ==============================================================================
-# 2. RENDERIZADO DE LA TABLA WEB INTERACTIVA
+# Renderizado de la tabla
 # ==============================================================================
 rmarkdown::paged_table(vista_previa_corpus, options = list(rows.print = 10, max.print = 50))
 
 ```
 
 
-## te quedas por aquí. creación de los índices
+
+
+## Coordinación explícita existente en el grado {#sec-resultado-coord-explicita}
+
+El resultado de aplicar [esta](#sec-metodo-coord-explicita) fase de la metodología propuesta implica, en primer lugar, la siguiente tabla. Muestra las relaciones explícitas identificadas automáticamente:
+
+
+```{r}
+#| label: visualizacion-relaciones-explicitas
+#| echo: false
+#| eval: true
+
+
+# 1. Optimización estética de las cabeceras para la lectura ejecutiva
+vista_tabla_explicitas <- tabla_relaciones_explicitas %>%
+  select(
+    `Sigla 1`      = sigla_1,
+    `Asignatura 1`   = asignatura_1,
+    `Sigla 2`      = sigla_2,
+    `Asignatura 2`   = asignatura_2
+  )
+
+# 2. Renderizado con ajuste adaptativo automático de anchura (CSS Autowidth)
+knitr::kable(
+  vista_tabla_explicitas, 
+  format = "html",
+  align = c("c", "l", "c", "l") # Centrado para siglas, izquierda para nombres
+)
+```
+
+Como se mencionó en la metodología, las relaciones identificadas automáticamente pueden contener falsos positivos. Puede que una asignatura mencione una disciplina que tenga el mismo nombre que otra asignatura. Para evitar eso, es necesario revisar a mano todas las relaciones identificadas automáticamente. El resultado de esa revisión genera la siguiente tabla de relaciones explícitas confirmadas:
+
+```{r}
+#| label: visualizacion-relaciones-explicitas-verificadas
+#| echo: false
+#| eval: true
+
+
+# 1. Optimización estética de las cabeceras para la lectura ejecutiva
+vista_tabla_explicitas_verificadas <- tabla_relaciones_explicitas_verificadas %>%
+  select(
+    `Sigla 1`      = sigla_1,
+    `Asignatura 1`   = asignatura_1,
+    `Sigla 2`      = sigla_2,
+    `Asignatura 2`   = asignatura_2
+  )
+
+# 2. Renderizado con ajuste adaptativo automático de anchura (CSS Autowidth)
+knitr::kable(
+  vista_tabla_explicitas_verificadas, 
+  format = "html",
+  align = c("c", "l", "c", "l") # Centrado para siglas, izquierda para nombres
+)
+```
+
+A continuación se muestran estos mismos resultados en un gráfico de red. 
+
+
+```{r}
+#| label: grafico-red-coordinacion-explicita
+#| eval: true
+#| echo: false
+#| fig-width: 11
+#| fig-height: 7
+
+# 1. Asegurar la carga de librerías en este entorno local
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+
+
+# Nos aseguramos de que los códigos sean caracteres puros para evitar desajustes en los joins
+nodos_base <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  mutate(codigo = as.character(codigo))
+
+aristas_base <- tabla_relaciones_explicitas_verificadas %>%
+  mutate(
+    codigo_1 = as.character(codigo_1),
+    codigo_2 = as.character(codigo_2)
+  )
+
+# 3. GENERACIÓN DE LA REJILLA DE COORDENADAS (X, Y)
+nodos_posicionados <- nodos_base %>%
+  distinct(codigo, sigla, nombre_asignatura, curso, cuatrimestre) %>%
+  mutate(
+    curso_num = as.numeric(str_extract(curso, "\\d+")),
+    cuat_clean = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ 1,
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ 2,
+      TRUE ~ 1
+    ),
+    sigla_display = toupper(as.character(sigla))
+  ) %>%
+  filter(!is.na(curso_num)) %>%
+  arrange(curso_num, cuat_clean, codigo) %>%
+  group_by(curso_num, cuat_clean) %>%
+  mutate(pos_secuencial = row_number()) %>%
+  ungroup() %>%
+  mutate(
+    y_coord = curso_num,
+    x_coord = if_else(cuat_clean == 1, 
+                      pos_secuencial, 
+                      pos_secuencial + max(pos_secuencial) + 1.5)
+  )
+
+# 4. VINCULACIÓN GEOMÉTRICA DE ARISTAS
+aristas_triple_capa <- aristas_base %>%
+  select(from = codigo_1, to = codigo_2) %>%
+  left_join(nodos_posicionados %>% select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
+  left_join(nodos_posicionados %>% select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
+  filter(!is.na(from) & !is.na(to)) %>%
+  mutate(
+    tipo_relacion = case_when(
+      curso_from != curso_to ~ "Vertical (Cursos diferentes)",
+      curso_from == curso_to & cuat_from == cuat_to ~ "Horizontal intracuatrimestre",
+      curso_from == curso_to & cuat_from != cuat_to ~ "Horizontal intercuatrimestre",
+      TRUE ~ "Vertical (Cursos diferentes)"
+    )
+  ) %>%
+  select(from, to, tipo_relacion)
+
+nodes_final <- nodos_posicionados %>% 
+  rename(id = codigo)
+
+# 5. ENSAMBLAJE TOPOLÓGICO DEL GRAFO
+grafo_objeto_final <- tbl_graph(
+  nodes = nodes_final, 
+  edges = aristas_triple_capa, 
+  directed = FALSE
+)
+
+# 6. RENDERIZACIÓN DIRECTA DEL LIENZO EN EL INFORME HTML
+ggraph(grafo_objeto_final, layout = "manual", x = x_coord, y = y_coord) +
+  geom_edge_link(
+    aes(filter = (tipo_relacion == "Vertical (Cursos diferentes)"), color = tipo_relacion),
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'), alpha = 0.5, width = 0.4
+  ) +
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intracuatrimestre"), color = tipo_relacion),
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'), alpha = 0.8, width = 0.66, strength = 0.08
+  ) +
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intercuatrimestre"), color = tipo_relacion),
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'), alpha = 0.8, width = 0.66, strength = -0.08
+  ) +
+  geom_node_point(color = "#E67E22", size = 6) +
+  geom_node_text(aes(label = sigla_display), vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50") +
+  scale_edge_color_manual(
+    name = "Tipología de Relaciones Explícitas",
+    values = c(
+      "Vertical (Cursos diferentes)"   = "#7F8C8D", 
+      "Horizontal intracuatrimestre"   = "#145A32", 
+      "Horizontal intercuatrimestre"   = "#2ECC71"  
+    )
+  ) +
+  scale_y_continuous(breaks = 1:4, labels = c("1º Curso", "2º Curso", "3º Curso", "4º Curso"), limits = c(0.5, 4.5)) +
+  labs(
+    title = "Coordinación explícita entre asignaturas de Ciencias Ambientales. Curso 25-26",
+    subtitle = "Análisis de menciones cruzadas de nombre de asignatura en las guías docentes",
+    x = " 1er Cuatrimestre                               |              2º Cuatrimestre →", 
+    y = ""
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "#EBF0F1", linetype = "solid"),
+    axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.x = element_text(face = "bold", size = 10, color = "#7F8C8D", margin = margin(t = 12)),
+    axis.text.y = element_text(face = "bold", size = 10, color = "#2C3E50"),
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, color = "#7F8C8D", margin = margin(b = 15)),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold", size = 9, color = "#2C3E50"),
+    legend.text = element_text(size = 8.5, color = "#34495E"),
+    legend.box = "horizontal",
+    panel.background = element_rect(fill = "#FFFFFF", color = NA)
+  )
+```
+
+
+
+## Similitud léxica entre asignaturas del grado
+
+## Convergencia semántica latente entre asignaturas del grado
+
+## Afinidad conceptual más allá de la coincidencia terminológica
+
+## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
+
+
+
+# Discusión
+
+# Propuestas para mejorar la coordinación del grado
+
+
+# Uso de la IA en este análisis
+
+Reflexión sobre cómo he usado esta herramienta.
++ Me ha permitido hacer análisis que de otra forma habrían sido imposibles.
+
++ Decir que hemos combinado dos IAs de varias formas. 
+
+    + Gemini ha sido el motor principal para generar el código de R
+    
+    + La construcción del modelo conceptual teórico del análisis semántico se ha hecho combinando Gemini y Claude. Los resultados propuestos por Gemini fueron enviados a Claude para su crítica. La devolución de esta última herramienta se integró en Gemini. Tras varios procesos iterativos se llegó a un marco conceptual sólido que es el que se transformó a Código con Gemini.
+
++ he aprendido muchas cosas: filosofía del tidyverse, comprensión más profunda de los bucles, técnicas de web scrapping, técnicas de análisis semánticos de textos, métodos evaluación de curricula, sobre coordinación de docencia en la universidad
+
++ Lo anterior ha sido posible porque partía de cierto conocimiento previo:
+
+     + Profundo conocimiento sobre bases de datos relacionales.
+     + Conocimiento básico sobre R y programación.
+     + Conocimiento básico sobre análisis semántico
+
 
