@@ -36,7 +36,7 @@ execute:
 
 El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
 
-# Metodología propuesta
+# Metodología
 
 La metodología propuesta se basa en técnicas de minería de texto y análisis de similitud del texto contenido en las guías docentes. Implica, en términos generales, los siguientes pasos:
 
@@ -457,6 +457,84 @@ tabla_relaciones_explicitas_verificadas <- tabla_relaciones_explicitas %>%
 
 Los resultados de esta fase se muestran en [esta](#sec-resultado-coord-explicita) sección. 
 
+## Identificación automática de relaciones de dependencia entre asignaturas
+
+Además de la coordinación explícita descrita anteriormente, es posible que las asignaturas tengan relaciones de dependencia. Es decir, puede que para recibir una asignatura, los estudiantes tengan que haber cursado otra u otras. Es importante identificar estas relaciones porque ponen de manifiesto una característica importante. Son las llamadas relaciones instrumentales entre asignaturas. Una asignatura es instrumentalmente necesaria para otra cuando proporciona un andamiaje conceptual sin el cual los contenidos de la segunda carecen de estructura cognitiva donde integrarse  ([Stavrinides P. & Kinstantin M. Zuev, 2023](https://link.springer.com/article/10.1007/s41109-023-00543-w)). La razón de ser de estas dependencias está en un hecho contrastado en multitud de situaciones: el aprendizaje nuevo se retiene de forma más efectiva cuando se conecta deliberadamente con estructuras congnitivas (aprendizajes) ya existentes. 
+
+Para tratar de identificar estas relaciones de interdependencia entre asignaturas, usamos las secciones "requisitos previos establecidos en el plan de estudios" y "recomendaciones" de las guías docentes. Es en esas secciones en las que los profesores suelen indicar que para cursar su asignatura es necesario haber cursado otras. Así que, buscamos automáticamente en cada guía docente menciones a otras asignaturas en estos apartados. 
+
+El siguiente bloque de código muestra cómo hacer lo anterior:
+
+
+```{r}
+#| label: relaciones-dependencia-normativa
+#| code-fold: true
+#| eval: true
+#| echo: true
+
+# Preparación de la tabla de trabajo
+library(tidyverse)
+
+corpus_dependencias <- corpus_busqueda %>%
+  select(codigo, sigla, nombre_asignatura, nombre_limpio, requisitos, recomenda) %>%
+  mutate(
+    texto_normativo_unificado = tolower(paste(
+      coalesce(requisitos, ""), 
+      coalesce(recomenda, ""), 
+      sep = " "
+    )),
+    texto_normativo_unificado = str_replace_all(texto_normativo_unificado, "\\s+", " "),
+    codigo = as.character(codigo)
+  )
+
+# configuración de los elementos a buscar
+catalogo_dependencias_target <- corpus_dependencias %>% 
+  select(codigo_target = codigo, sigla_target = sigla, nombre_target = nombre_asignatura, target_limpio = nombre_limpio)
+
+# Bucle de intersección
+dependencias_brutas <- map_df(1:nrow(corpus_dependencias), function(i) {
+  origen_id     <- corpus_dependencias$codigo[i]
+  origen_sigla  <- corpus_dependencias$sigla[i]
+  origen_nombre <- corpus_dependencias$nombre_asignatura[i]
+  texto_legal   <- corpus_dependencias$texto_normativo_unificado[i]
+  
+  map_df(1:nrow(catalogo_dependencias_target), function(j) {
+    target_id     <- catalogo_dependencias_target$codigo_target[j]
+    target_sigla  <- catalogo_dependencias_target$sigla_target[j]
+    target_nombre  <- catalogo_dependencias_target$nombre_target[j]
+    target_string <- catalogo_dependencias_target$target_limpio[j]
+    
+    if (origen_id != target_id && str_detect(texto_legal, fixed(target_string))) {
+      # Mantenemos el rol estricto: A (origen) depende de B (target)
+      return(tibble(
+        codigo_origen  = origen_id, 
+        sigla_origen   = origen_sigla, 
+        asig_origen    = origen_nombre,
+        codigo_destino = target_id, 
+        sigla_destino  = target_sigla, 
+        asig_destino   = target_nombre
+      ))
+    }
+    return(NULL)
+  })
+})
+
+# Normalización manteniendo la cardinalidad de las relaciones
+
+relaciones_dependencia_detectadas <- dependencias_brutas %>%
+  # Eliminamos filas idénticas en dirección (mismo origen apuntando al mismo destino)
+  distinct(codigo_origen, sigla_origen, asig_origen, codigo_destino, sigla_destino, asig_destino) %>%
+  arrange(codigo_origen)
+
+
+```
+
+
+
+
+## Generación de índices de similitud entre los contenidos de las guías docentes
+
+
 
 
 
@@ -566,8 +644,9 @@ A continuación se muestran estos mismos resultados en un gráfico de red.
 
 ```{r}
 #| label: grafico-red-coordinacion-explicita
+#| code-fold: true
 #| eval: true
-#| echo: false
+#| echo: true
 #| fig-width: 11
 #| fig-height: 7
 
@@ -705,6 +784,17 @@ ggsave(
 mapa_nominal_final
 
 ```
+El gráfico anterior se puede descargar [aquí](https://raw.githubusercontent.com/fjbonet/informe_coordinacion_CCAA_UCO/main/outputs/mapa_coordinacion_explicita_CCAA.pdf) en formato pdf.
+
+Observamos que las únicas relaciones de coordinación explícitamente mencionadas en las guías docentes son las siguientes:
++ Química ambiental (QA) y Físicoquímica de aguas (FA)
+
++ Sistemas de información geográfica (SIG) y Ecología (E)
+
++ Ecología (E) y Gestión de ecosistemas (GE)
+
++ Ecología (E) y Cartografía aplicada (CA)
+
 
 
 
