@@ -32,31 +32,12 @@ execute:
   message: false                 # Puga los mensajes informativos del sistema o de ggplot2
 ---
 
-```{r}
-#| label: configuracion-entorno
-#| include: false
-
-# ==============================================================================
-# CONTROL DE DEPENDENCIAS (EJECUTAR EN CONSOLA SI ES LA PRIMERA VEZ)
-# ==============================================================================
-# Este cuaderno técnico requiere paquetes específicos para el análisis de redes 
-# y la minería de textos en la UCO. Si no los tienes, descomenta las líneas:
-
-# install.packages("tidyverse")
-# install.packages("tidygraph")
-# install.packages("ggraph")
-# install.packages("tidytext")
-# install.packages("tm")      
-
-
-```
-
-
-
-
-
 
 # Introducción y objetivos
+
+[EL PAPEL DE LA COORDINACIÓN DOCENTE EN EL APRENDIZAJE
+
+DIFICULTADES PARA ... PENSAR CÓMO ORGANIZAR ESTO]
 
 El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
 
@@ -93,6 +74,16 @@ La metodología propuesta se basa en técnicas de minería de texto y análisis 
 
 Este documento muestra el procedimiento seguido tras aplicar la metodología anterior. Es un documento ejecutable y reproducible en R. Los detalles metodológicos de cada uno de los pasos descritos anteriormente, se muestran en las siguientes secciones.
 
+
+
+::: callout-note
+## Requisitos previos de ejecución
+
+Para ejecutar el siguiente flujo de trabajo  en un entorno local de RStudio, es necesario contar con las librerías `tidyverse` y `rvest` previamente instaladas en el sistema a través de la consola de R empleando el comando `install.packages(c("tidyverse", "tidygraph", "tidytext", "rvest", "ggraph","tm" ))`.
+:::
+
+
+
 ## Descarga automática de guías docentes
 
 El análisis de la estructura curricular del Grado en Ciencias Ambientales se basa en la información contenida en las guías docentes oficiales de la Universidad de Córdoba (UCO) para el curso académico 2025-2026.
@@ -101,11 +92,6 @@ Para garantizar la reproducibilidad de la auditoría y mitigar los sesgos deriva
 
 Durante su ejecución se observan algunos errores. Hay algunos documentos que, aunque constan como PDFs en la web, no lo son.
 
-::: callout-note
-## Requisitos previos de ejecución
-
-Para ejecutar las celdas de este bloque en un entorno local de RStudio, es necesario contar con las librerías `tidyverse` y `rvest` previamente instaladas en el sistema a través de la consola de R empleando el comando `install.packages(c("tidyverse", "rvest"))`.
-:::
 
 ```{r}
 #| label: configuracion-entorno-y-descarga
@@ -868,7 +854,7 @@ mapa_nominal_final <- ggraph(grafo_objeto_final, layout = "manual", x = x_coord,
   geom_node_point(color = "#E67E22", size = 6) +
   geom_node_text(aes(label = sigla_display), vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50") +
   scale_edge_color_manual(
-    name = "Tipología de Relaciones Explícitas",
+    name = "Tipología de relaciones",
     values = c(
       "Vertical (Cursos diferentes)"   = "#7F8C8D", 
       "Horizontal intracuatrimestre"   = "#145A32", 
@@ -1132,6 +1118,184 @@ mapa_dependencias_plot
 ```
 
 ## Similitud léxica entre asignaturas del grado {#sec-resultado-similitud}
+
+
+
+
+```{r}
+#| label: grafico-red-similitud-tfidf
+#| code-fold: true
+#| eval: true
+#| echo: true
+#| fig-width: 11
+#| fig-height: 7
+
+# 1. CARGA LOCAL DE DEPENDENCIAS CRÍTICAS
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+
+# 1. CARGA LOCAL DE DEPENDENCIAS CRÍTICAS
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+
+# 2. ENCAPSULACIÓN Y BLINDAJE DE DATOS DE ENTRADA
+nodos_base_tfidf <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  mutate(codigo = as.character(codigo))
+
+aristas_base_tfidf <- similitud_tfidf_detectada %>%
+  filter(coseno_tfidf >= 0.1) %>%
+  mutate(
+    codigo_1 = as.character(codigo_1),
+    codigo_2 = as.character(codigo_2)
+  )
+
+# 3. RECONSTRUCCIÓN DE LA REJILLA DE COORDENADAS INTERACTIVA (X, Y)
+nodos_posicionados_tfidf <- nodos_base_tfidf %>%
+  distinct(codigo, sigla, nombre_asignatura, curso, cuatrimestre) %>%
+  mutate(
+    curso_num = as.numeric(str_extract(curso, "\\d+")),
+    cuat_clean = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ 1,
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ 2,
+      TRUE ~ 1
+    ),
+    sigla_display = toupper(as.character(sigla))
+  ) %>%
+  filter(!is.na(curso_num)) %>%
+  arrange(curso_num, cuat_clean, codigo) %>%
+  group_by(curso_num, cuat_clean) %>%
+  mutate(pos_secuencial = row_number()) %>%
+  ungroup() %>%
+  mutate(
+    y_coord = curso_num,
+    x_coord = if_else(cuat_clean == 1, 
+                      pos_secuencial, 
+                      pos_secuencial + max(pos_secuencial) + 1.5)
+  )
+
+# 4. ENRUTAMIENTO SIMÉTRICO DE ARISTAS SEGÚN CURSO Y CUATRIMESTRE
+aristas_simetricas_tfidf <- aristas_base_tfidf %>%
+  select(from = codigo_1, to = codigo_2, peso_coseno = coseno_tfidf) %>%
+  left_join(nodos_posicionados_tfidf %>% select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
+  left_join(nodos_posicionados_tfidf %>% select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
+  filter(!is.na(from) & !is.na(to)) %>%
+  mutate(
+    tipo_relacion = case_when(
+      curso_from != curso_to ~ "Vertical (Cursos diferentes)",
+      curso_from == curso_to & cuat_from == cuat_to ~ "Horizontal intracuatrimestre",
+      curso_from == curso_to & cuat_from != cuat_to ~ "Horizontal intercuatrimestre",
+      TRUE ~ "Vertical (Cursos diferentes)"
+    )
+  )
+
+nodes_final_tfidf <- nodos_posicionados_tfidf %>% 
+  rename(id = codigo)
+
+grafo_tfidf_final <- tbl_graph(
+  nodes = nodes_final_tfidf, 
+  edges = aristas_simetricas_tfidf, 
+  directed = FALSE
+)
+
+# 5. CONSTRUCCIÓN VECTORIAL DEL MAPA SEMÁNTICO (CON GROSOR PROPORCIONAL AL COSENO)
+mapa_tfidf_plot <- ggraph(grafo_tfidf_final, layout = "manual", x = x_coord, y = y_coord) +
+  
+  # CAPA 1: Relaciones inter-curso -> Mapeo dinámico de edge_width
+  geom_edge_link(
+    aes(filter = (tipo_relacion == "Vertical (Cursos diferentes)"), 
+        color = tipo_relacion, 
+        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.5
+  ) +
+  
+  # CAPA 2: Relaciones intracuatrimestre -> Mapeo dinámico de edge_width
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intracuatrimestre"), 
+        color = tipo_relacion, 
+        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.7, strength = 0.08
+  ) +
+  
+  # CAPA 3: Relaciones intercuatrimestre -> Mapeo dinámico de edge_width
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Horizontal intercuatrimestre"), 
+        color = tipo_relacion, 
+        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
+    alpha = 0.7, strength = -0.08
+  ) +
+  
+  geom_node_point(color = "#E67E22", size = 6) +
+  
+  geom_node_text(aes(label = sigla_display), vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50") +
+  
+  # Paleta cromática corporativa
+  scale_edge_color_manual(
+    name = "Tipología de relaciones",
+    values = c(
+      "Vertical (Cursos diferentes)"   = "#7F8C8D", 
+      "Horizontal intracuatrimestre"   = "#145A32", 
+      "Horizontal intercuatrimestre"   = "#2ECC71"  
+    )
+  ) +
+  
+  # CONFIGURACIÓN ESCALADA DEL GROSOR DE LAS LÍNEAS (Mínimo 0.2, Máximo 1.5)
+  scale_edge_width_continuous(
+    name = "Intensidad del solapamiento (Coseno TF-IDF)",
+    range = c(0.2, 1.5) # ← Controla el escalado físico para evitar distorsiones visuales
+  ) +
+  
+  scale_y_continuous(breaks = 1:4, labels = c("1º Curso", "2º Curso", "3º Curso", "4º Curso"), limits = c(0.1, 4.5)) +
+  
+  labs(
+    title = "Mapa de solapamientos semánticos entre asignaturas mediante TF-IDF",
+    subtitle = "Análisis del espacio de palabras clave en las secciones de contenido de las guías docentes",
+    x = " 1er Cuatrimestre                               |              2º Cuatrimestre →", 
+    y = ""
+  ) +
+  
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "#EBF0F1", linetype = "solid"),
+    axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.x = element_text(face = "bold", size = 10, color = "#7F8C8D", margin = margin(t = 12)),
+    axis.text.y = element_text(face = "bold", size = 10, color = "#2C3E50"),
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, color = "#7F8C8D", margin = margin(b = 15)),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold", size = 9, color = "#2C3E50"),
+    legend.text = element_text(size = 8.5, color = "#34495E"),
+    legend.box = "horizontal",
+    panel.background = element_rect(fill = "#FFFFFF", color = NA)
+  )
+
+# 6. EXPORTACIÓN SILENCIOSA A LA CARPETA OUTPUTS (PDF VECTORIAL)
+carpeta_outputs <- "outputs"
+if (!dir.exists(carpeta_outputs)) dir.create(carpeta_outputs, recursive = TRUE)
+
+ggsave(
+  filename = file.path(carpeta_outputs, "mapa_similitud_tfidf_CCAA.pdf"),
+  plot = mapa_tfidf_plot,
+  width = 11,
+  height = 7,
+  device = "pdf"
+)
+
+# 7. INVOCACIÓN DE RETORNO PARA EL REPOSITORIO DE QUARTO (HTML)
+mapa_tfidf_plot
+
+```
+
+
+
+
+
 
 ## Convergencia semántica latente entre asignaturas del grado
 
