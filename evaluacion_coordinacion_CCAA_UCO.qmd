@@ -32,11 +32,42 @@ execute:
   message: false                 # Puga los mensajes informativos del sistema o de ggplot2
 ---
 
-# Descripción general y objetivos
+```{r}
+#| label: configuracion-entorno
+#| include: false
+
+# ==============================================================================
+# CONTROL DE DEPENDENCIAS (EJECUTAR EN CONSOLA SI ES LA PRIMERA VEZ)
+# ==============================================================================
+# Este cuaderno técnico requiere paquetes específicos para el análisis de redes 
+# y la minería de textos en la UCO. Si no los tienes, descomenta las líneas:
+
+# install.packages("tidyverse")
+# install.packages("tidygraph")
+# install.packages("ggraph")
+# install.packages("tidytext")
+# install.packages("tm")      
+
+
+```
+
+
+
+
+
+
+# Introducción y objetivos
 
 El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
 
+[INCLUIR ENTRE LOS OBJETIVOS:
++ IDENTIFICAR COORDINACIÓN REAL
++ IDENTIFICAR DEPENDENCIAS ENTRE ASIGNATURAS. INSTRUMENTALES
++ IDENTIFICAR CANDIDATAS A SOLAPE]
+
 # Metodología
+
+[EXPLICITAR QUE ESTA METODOLOGÍA PERSIGUE SATISFACER LOS OBJETIVOS ANTERIORES]
 
 La metodología propuesta se basa en técnicas de minería de texto y análisis de similitud del texto contenido en las guías docentes. Implica, en términos generales, los siguientes pasos:
 
@@ -145,9 +176,7 @@ Tras el proceso anterior, borrar manualmente el archivo llamado `286100es_2025-2
 
 ## Extracción textual y normalización del corpus
 
-El siguiente paso, una vez descargados los archivos de las guías docentes, consiste en desestructurar los archivos PDF para crear una base de datos relacional homogénea. Se extraen de forma síncrona los metadatos administrativos (código, curso y cuatrimestre). También se extraen varias secciones cuyo contenido que servirá para el análisis semántico propiamente dicho. 
-
-
+El siguiente paso, una vez descargados los archivos de las guías docentes, consiste en desestructurar los archivos PDF para crear una base de datos relacional homogénea. Se extraen de forma síncrona los metadatos administrativos (código, curso y cuatrimestre). También se extraen varias secciones cuyo contenido que servirá para el análisis semántico propiamente dicho.
 
 ```{r}
 #| label: paquetes-rutas-relativas
@@ -166,18 +195,17 @@ carpeta_pdfs <- file.path("guias")
 archivos_pdf <- list.files(carpeta_pdfs, pattern = "\\.pdf$", full.names = TRUE)
 ```
 
-
 ## Creación de tabla con nombres de asignaturas, sus códigos y sus siglas.
 
 Este paso es importante y no automático. Los nombres de las asignaturas suelen ser largos. Eso hace que su visualización en gráficas no siempre sea fácil. Por eso es preferible usar la abreviatura de la asignatura para dichas visualizaciones. En el horario oficial de la Facultad de Ciencias de la UCO hay ya una lista de abreviaturas para cada asignatura. No he encontrado una forma fácil de automatizar el proceso de descarga de las siglas de cada asignaturas, así que se procede así:
 
-+ Visitar la web de los horarios ([esta](https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales)).
+-   Visitar la web de los horarios ([esta](https://www.uco.es/ciencias/es/planificacion-ensenanza-ambientales)).
 
-+ Ir copiando los nombres, códigos y siglas de las asignaturas de cada curso y cuatrimestre.
+-   Ir copiando los nombres, códigos y siglas de las asignaturas de cada curso y cuatrimestre.
 
-+ Ir pegando los resultados incrementalmente en un archivo markdown o en un excel directamente.
+-   Ir pegando los resultados incrementalmente en un archivo markdown o en un excel directamente.
 
-+ Exportar el contenido a un archivo `.csv` y guardarlo en la carpeta `datos_control` con el nombre `codigos_nombres_siglas_asignaturas_web.csv`.
+-   Exportar el contenido a un archivo `.csv` y guardarlo en la carpeta `datos_control` con el nombre `codigos_nombres_siglas_asignaturas_web.csv`.
 
 La siguiente línea de código crea el objeto que será usado a continuación para importar el archivo csv mencionado.
 
@@ -198,16 +226,15 @@ siglas_nombres_asignaturas <- file.path("datos_control",
 
 El siguiente paso implica la lectura secuencial de todos los archivos pdf de las guías docentes para extraer de ellos la siguiente información:
 
-+ Breve descripción de los contenidos: Esta sección describe muy sucintamente en qué consiste la asignatura en cuestión.
+-   Breve descripción de los contenidos: Esta sección describe muy sucintamente en qué consiste la asignatura en cuestión.
 
-+ Conocimientos previos necesarios: Consta de "requisitos previos establecidos en el plan de estudios" y de "recomendaciones". Esta información se usará para identificar relaciones de dependencia explícitas entre asignaturas.
+-   Conocimientos previos necesarios: Consta de "requisitos previos establecidos en el plan de estudios" y de "recomendaciones". Esta información se usará para identificar relaciones de dependencia explícitas entre asignaturas.
 
-+ Contenidos teóricos: Se trata de la parte de la guía docente que describe los contenidos teóricos que se imparten en la asignatura.
+-   Contenidos teóricos: Se trata de la parte de la guía docente que describe los contenidos teóricos que se imparten en la asignatura.
 
-+ Contenidos prácticos: Se trata de la parte de la guía docente que describe los contenidos prácticos que se imparten en la asignatura.
+-   Contenidos prácticos: Se trata de la parte de la guía docente que describe los contenidos prácticos que se imparten en la asignatura.
 
 El resultado de esta fase se puede ver [aquí](#sec-resultado-corpus)
-
 
 ```{r}
 #| label: extraccion-textual-y-normalizacion
@@ -327,22 +354,22 @@ corpus_busqueda <- datos_guias %>%
   )
 ```
 
-
 ## Identificación semiautomática de procesos de coordinación explícitos {#sec-metodo-coord-explicita}
 
-El primer paso una vez que se ha construido el Corpus de conocimiento, es identificar los actos de coordinación explícitos que hay en el grado. 
+El primer paso una vez que se ha construido el Corpus de conocimiento, es identificar los actos de coordinación explícitos que hay en el grado.
 
-Consideramos que hay coordinación real cuando en una guía docente se menciona explícitamente el nombre de otra asignatura. Esta condición debe de cumplirse o bien en la sección de "contenidos teóricos" o en la de "contenidos prácticos". Asumimos que esto es coordinación explícita porque la mención de asignaturas en las secciones de contenidos implican que hay una relación directa entre las asignaturas. Es decir, sus contenidos están tan integrados que los profesores consideran importante hacer menciones a otras asignaturas cuando explican los contenidos de la suya. 
+
+[HABLAR DE LO IMPORTANTE QUE ES LA COORDINACIÓN Y SUS EFECTOS POSITIVOS EN EL APRENDIZAJE. BUSCAR LITERATURA QUE LO AVALE]
+
+Consideramos que hay coordinación real cuando en una guía docente se menciona explícitamente el nombre de otra asignatura. Esta condición debe de cumplirse o bien en la sección de "contenidos teóricos" o en la de "contenidos prácticos". Asumimos que esto es coordinación explícita porque la mención de asignaturas en las secciones de contenidos implican que hay una relación directa entre las asignaturas. Es decir, sus contenidos están tan integrados que los profesores consideran importante hacer menciones a otras asignaturas cuando explican los contenidos de la suya.
 
 Para identificar automáticamente estas relaciones, procedemos de la siguiente forma:
 
-+ Generamos una tabla con los nombres de las asignaturas.
+-   Generamos una tabla con los nombres de las asignaturas.
 
-+ Buscamos en las secciones de contenidos de las guías docentes los nombres de las asignaturas.
+-   Buscamos en las secciones de contenidos de las guías docentes los nombres de las asignaturas.
 
-+ Se crea una tabla final `tabla_relaciones_explicitas`que lista las relaciones entre asignaturas en las que hay menciones explícitas de las mismas. Cada fila de esta tabla se define por los nombres de las dos asignaturas que son mencionadas en las guías docentes. No se contempla la cardinalidad en esta relación. Es decir, una relación se considera como de "coordinación real" aunque las menciones no sean mutuas. Si A menciona a B, pero B no menciona a A, se sigue considerando coordinación real. 
-
-
+-   Se crea una tabla final `tabla_relaciones_explicitas`que lista las relaciones entre asignaturas en las que hay menciones explícitas de las mismas. Cada fila de esta tabla se define por los nombres de las dos asignaturas que son mencionadas en las guías docentes. No se contempla la cardinalidad en esta relación. Es decir, una relación se considera como de "coordinación real" aunque las menciones no sean mutuas. Si A menciona a B, pero B no menciona a A, se sigue considerando coordinación real.
 
 ```{r}
 #| label: relaciones-explicitas-nominales
@@ -425,8 +452,6 @@ Este procedimiento automático tiene un fallo potencial importante. En ocasiones
 
 La revisión anterior implica identificar qué relaciones son reales y purgar el resto de la tabla generada anteriormente:
 
-
-
 ```{r}
 #| label: filtro-experto-relaciones-explicitas
 #| eval: true
@@ -455,16 +480,15 @@ tabla_relaciones_explicitas_verificadas <- tabla_relaciones_explicitas %>%
 
 ```
 
-Los resultados de esta fase se muestran en [esta](#sec-resultado-coord-explicita) sección. 
+Los resultados de esta fase se muestran en [esta](#sec-resultado-coord-explicita) sección.
 
 ## Identificación automática de relaciones de dependencia entre asignaturas {#sec-metodo-dependencia}
 
-Además de la coordinación explícita descrita anteriormente, es posible que las asignaturas tengan relaciones de dependencia. Es decir, puede que para recibir una asignatura, los estudiantes tengan que haber cursado otra u otras. Es importante identificar estas relaciones porque ponen de manifiesto una característica importante. Son las llamadas relaciones instrumentales entre asignaturas. Una asignatura es instrumentalmente necesaria para otra cuando proporciona un andamiaje conceptual sin el cual los contenidos de la segunda carecen de estructura cognitiva donde integrarse  ([Stavrinides P. & Kinstantin M. Zuev, 2023](https://link.springer.com/article/10.1007/s41109-023-00543-w)). La razón de ser de estas dependencias está en un hecho contrastado en multitud de situaciones: el aprendizaje nuevo se retiene de forma más efectiva cuando se conecta deliberadamente con estructuras congnitivas (aprendizajes) ya existentes. 
+Además de la coordinación explícita descrita anteriormente, es posible que las asignaturas tengan relaciones de dependencia. Es decir, puede que para recibir una asignatura, los estudiantes tengan que haber cursado otra u otras. Es importante identificar estas relaciones porque ponen de manifiesto una característica importante. Son las llamadas relaciones instrumentales entre asignaturas. Una asignatura es instrumentalmente necesaria para otra cuando proporciona un andamiaje conceptual sin el cual los contenidos de la segunda carecen de estructura cognitiva donde integrarse ([Stavrinides P. & Kinstantin M. Zuev, 2023](https://link.springer.com/article/10.1007/s41109-023-00543-w)). La razón de ser de estas dependencias está en un hecho contrastado en multitud de situaciones: el aprendizaje nuevo se retiene de forma más efectiva cuando se conecta deliberadamente con estructuras congnitivas (aprendizajes) ya existentes.
 
-Para tratar de identificar estas relaciones de interdependencia entre asignaturas, usamos las secciones "requisitos previos establecidos en el plan de estudios" y "recomendaciones" de las guías docentes. Es en esas secciones en las que los profesores suelen indicar que para cursar su asignatura es necesario haber cursado otras. Así que, buscamos automáticamente en cada guía docente menciones a otras asignaturas en estos apartados. 
+Para tratar de identificar estas relaciones de interdependencia entre asignaturas, usamos las secciones "requisitos previos establecidos en el plan de estudios" y "recomendaciones" de las guías docentes. Es en esas secciones en las que los profesores suelen indicar que para cursar su asignatura es necesario haber cursado otras. Así que, buscamos automáticamente en cada guía docente menciones a otras asignaturas en estos apartados.
 
-El siguiente bloque de código muestra cómo hacer lo anterior. Y los resultados se muestran [aquí]({#sec-resultado-dependencia})
-
+El siguiente bloque de código muestra cómo hacer lo anterior. Y los resultados se muestran [aquí](%7B#sec-resultado-dependencia%7D)
 
 ```{r}
 #| label: relaciones-dependencia-normativa
@@ -529,13 +553,127 @@ relaciones_dependencia_detectadas <- dependencias_brutas %>%
 
 ```
 
+## Generación de un índice de similitud léxica entre asignaturas del grado {#sec-metodo-similitud}
+
+Una vez identificadas las relaciones de coordinación explícita y las relaciones de dependencia entre asignaturas, es momento de abordar una de las principales fuentes de preocupación de los profesores y de malestar de los estudiantes: la duplicidad de contenidos entre asignaturas. 
+
+
+```{r}
+#| label: pipeline-similitud-tfidf
+#| code-fold: true
+#| eval: true
+#| echo: true
+
+# Carga de paquetes
+library(tidyverse)
+library(tidytext)
+library(tidygraph)
+
+# Creación del corpus con el que trabajamos
+corpus_operativo_tfidf <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  mutate(codigo = as.character(codigo)) %>%
+  select(codigo, sigla, nombre_asignatura, 
+         descripcion_contenidos, contenidos_teoricos, contenidos_practicos) %>%
+  # Fusión de los campos de docencia real en el aula
+  mutate(
+    texto_puro = tolower(paste(
+      coalesce(descripcion_contenidos, ""), 
+      coalesce(contenidos_teoricos, ""), 
+      coalesce(contenidos_practicos, ""), 
+      sep = " "
+    )),
+    texto_puro = str_replace_all(texto_puro, "\\s+", " ")
+  ) %>%
+  select(codigo, sigla, nombre_asignatura, texto_puro)
+
+# ==============================================================================
+# Tokenización y purga de stopwords
+# ==============================================================================
+data("stop_words", package = "tidytext")
+stopwords_es <- tibble(
+  word = c(
+    tm::stopwords("spanish"), 
+    "asignatura", "créditos", "curso", "grados", "universidad", "córdoba", "uco",
+                   "tema", "bloque", "contenido", "contenidos", "teoría", "práctica", "prácticas",
+                   "programa", "descripción", "módulo", "departamento", "profesor", "profesorado",
+                   "anual", "cuatrimestre", "semestre", "duración", "código", "denominación",
+                   "breve", "conocimientos", "previos", "necesarios", "bibliografía", "unidades", "aprendizaje",
+                   "incluye", "alumnado", "así", "autoaprendizaje", "comprender", "entender", "aprobar", "igual",
+                   "moodle", "manera", "medio","ejercicios", "problemas", "cuestiones", "planteadas", "componen", "resolución",
+                   "general", "generales", "seminario", "seminarios", "correspondientes", "desarrollo", "ejemplos", "areas", "docente",
+                   "fecha", "in", "pág", "alumno", "i", "ii", "iii"
+  )
+)
+
+tokens_limpios <- corpus_operativo_tfidf %>%
+  # Forzamos que 'codigo' sea carácter antes de fragmentar
+  mutate(codigo = as.character(codigo)) %>%
+  unnest_tokens(output = word, input = texto_puro) %>%
+  filter(str_detect(word, "^[a-zA-ZñÑáéíóúÁÉÍÓÚ]{2,}$")) %>%
+  anti_join(stopwords_es, by = "word")
+
+# ==============================================================================
+# cómputo de la matriz de pesos TF-IDF
+# ==============================================================================
+matriz_tfidf <- tokens_limpios %>%
+  count(codigo, word, sort = TRUE) %>%
+  bind_tf_idf(term = word, document = codigo, n = n) %>%
+  # Nos aseguramos de que no queden factores ni vacíos rraros
+  mutate(
+    codigo = as.character(codigo),
+    word = as.character(word)
+  )
 
 
 
-## Generación de índices de similitud entre los contenidos de las guías docentes
+# ==============================================================================
+# Cálculo vectorial de la similitud del coseno
+# ==============================================================================
 
+# Limpieza  de estructuras y metadatos intermedios
+datos_para_matriz <- matriz_tfidf %>%
+  dplyr::ungroup() %>% 
+  dplyr::mutate(
+    codigo = as.character(codigo),
+    word   = as.character(word),
+    tf_idf = as.numeric(tf_idf)
+  ) %>%
+  dplyr::select(codigo, word, tf_idf)
 
+# Invocamos la generación de la matriz dispersa sobre el objeto purgado
+matriz_dispersa <- datos_para_matriz %>%
+  tidytext::cast_sparse(row = codigo, column = word, value = tf_idf)
 
+# Operaciones de Álgebra Lineal nativa sobre la matriz resultante
+matriz_matematica <- as.matrix(matriz_dispersa)
+magnitudes <- sqrt(rowSums(matriz_matematica^2))
+
+# Producto escalar matricial e inversión de la norma euclídea
+matriz_coseno_tfidf <- (matriz_matematica %*% t(matriz_matematica)) / (magnitudes %*% t(magnitudes))
+
+# Corrección de indeterminaciones matemáticas locales
+matriz_coseno_tfidf[is.nan(matriz_coseno_tfidf)] <- 0
+
+# ==============================================================================
+# Reestructuración en la lista (SIMILITUD TF-IDF)
+# ==============================================================================
+similitud_tfidf_detectada <- as.data.frame(as.table(matriz_coseno_tfidf)) %>%
+  as_tibble() %>%
+  rename(codigo_1 = Var1, codigo_2 = Var2, coseno_tfidf = Freq) %>%
+  mutate(
+    codigo_1 = as.character(codigo_1),
+    codigo_2 = as.character(codigo_2)
+  ) %>%
+  # Filtros de redundancia geométrica
+  filter(codigo_1 < codigo_2) %>%
+  # Cruce con el corpus limpio original para recuperar nombres
+  left_join(corpus_operativo_tfidf %>% select(codigo_1 = codigo, sigla_1 = sigla, asig_1 = nombre_asignatura), by = "codigo_1") %>%
+  left_join(corpus_operativo_tfidf %>% select(codigo_2 = codigo, sigla_2 = sigla, asig_2 = nombre_asignatura), by = "codigo_2") %>%
+  select(codigo_1, sigla_1, asig_1, codigo_2, sigla_2, asig_2, coseno_tfidf) %>%
+  arrange(desc(coseno_tfidf))
+
+```
 
 
 # Resultados
@@ -543,7 +681,6 @@ relaciones_dependencia_detectadas <- dependencias_brutas %>%
 ## Base de datos con los contenidos de las guías docentes {#sec-resultado-corpus}
 
 El resultado de extraer el contenido de los archivos PDF de las guías docentes se puede ver a continuación (la metodología se describe [aquí](#sec-metodo-corpus)). Se trata de una matriz con tantas filas como asignaturas. Los campos representan los atributos que caracterizan a cada asignatura.
-
 
 ```{r}
 #| label: visualizacion-corpus-busqueda
@@ -583,14 +720,9 @@ rmarkdown::paged_table(vista_previa_corpus, options = list(rows.print = 10, max.
 
 ```
 
-
-
-
 ## Coordinación explícita existente en el grado {#sec-resultado-coord-explicita}
 
-
 El resultado de aplicar [esta](#sec-metodo-coord-explicita) fase de la metodología propuesta genera, en primer lugar, la siguiente tabla. Muestra las relaciones explícitas identificadas automáticamente:
-
 
 ```{r}
 #| label: visualizacion-relaciones-explicitas
@@ -615,9 +747,7 @@ knitr::kable(
 )
 ```
 
-
 Como se mencionó en la metodología, las relaciones identificadas automáticamente pueden contener falsos positivos. Puede que una asignatura mencione una disciplina que tenga el mismo nombre que otra asignatura. Para evitar eso, es necesario revisar a mano todas las relaciones identificadas automáticamente. El resultado de esa revisión genera la siguiente tabla de relaciones explícitas confirmadas:
-
 
 ```{r}
 #| label: visualizacion-relaciones-explicitas-verificadas
@@ -642,9 +772,7 @@ knitr::kable(
 )
 ```
 
-
-A continuación se muestran estos mismos resultados en un gráfico de red. 
-
+A continuación se muestran estos mismos resultados en un gráfico de red.
 
 ```{r}
 #| label: grafico-red-coordinacion-explicita
@@ -791,20 +919,17 @@ mapa_nominal_final
 
 El gráfico anterior se puede descargar [aquí](https://raw.githubusercontent.com/fjbonet/informe_coordinacion_CCAA_UCO/main/outputs/mapa_coordinacion_explicita_CCAA.pdf) en formato pdf.
 
-Observamos que las únicas relaciones de coordinación explícitamente mencionadas en las guías docentes son las siguientes:
-+ Química ambiental (QA) y Físicoquímica de aguas (FA)
+Observamos que las únicas relaciones de coordinación explícitamente mencionadas en las guías docentes son las siguientes: + Química ambiental (QA) y Físicoquímica de aguas (FA)
 
-+ Sistemas de información geográfica (SIG) y Ecología (E)
+-   Sistemas de información geográfica (SIG) y Ecología (E)
 
-+ Ecología (E) y Gestión de ecosistemas (GE)
+-   Ecología (E) y Gestión de ecosistemas (GE)
 
-+ Ecología (E) y Cartografía aplicada (CA)
-
+-   Ecología (E) y Cartografía aplicada (CA)
 
 ## Relaciones de dependencia entre asignaturas {#sec-resultado-dependencia}
 
-Tras el análisis descrito [aquí]({#sec-metodo-dependencia}) se obtienen una serie de relaciones de dependencia entre asignaturas. Se muestran en la siguiente tabla.
-
+Tras el análisis descrito [aquí](%7B#sec-metodo-dependencia%7D) se obtienen una serie de relaciones de dependencia entre asignaturas. Se muestran en la siguiente tabla.
 
 ```{r}
 #| label: tabla-resultados-dependencias-dirigidas
@@ -844,9 +969,7 @@ knitr::kable(
 
 ```
 
-
-Y también en el siguiente gráfico que puede descargarse aquí en formato pdf.
-
+Y también en el siguiente gráfico que puede descargarse [aquí](https://raw.githubusercontent.com/fjbonet/informe_coordinacion_CCAA_UCO/main/outputs/mapa_dependencias_CCAA.pdf) en formato pdf.
 
 ```{r}
 #| label: grafico-red-dependencias-dirigidas
@@ -1008,9 +1131,7 @@ mapa_dependencias_plot
 
 ```
 
-
-
-## Similitud léxica entre asignaturas del grado
+## Similitud léxica entre asignaturas del grado {#sec-resultado-similitud}
 
 ## Convergencia semántica latente entre asignaturas del grado
 
@@ -1018,30 +1139,24 @@ mapa_dependencias_plot
 
 ## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
 
-
-
 # Discusión
 
 # Propuestas para mejorar la coordinación del grado
 
-
 # Uso de la IA en este análisis
 
-Reflexión sobre cómo he usado esta herramienta.
-+ Me ha permitido hacer análisis que de otra forma habrían sido imposibles.
+Reflexión sobre cómo he usado esta herramienta. + Me ha permitido hacer análisis que de otra forma habrían sido imposibles.
 
-+ Decir que hemos combinado dos IAs de varias formas. 
+-   Decir que hemos combinado dos IAs de varias formas.
 
-    + Gemini ha sido el motor principal para generar el código de R
-    
-    + La construcción del modelo conceptual teórico del análisis semántico se ha hecho combinando Gemini y Claude. Los resultados propuestos por Gemini fueron enviados a Claude para su crítica. La devolución de esta última herramienta se integró en Gemini. Tras varios procesos iterativos se llegó a un marco conceptual sólido que es el que se transformó a Código con Gemini.
+    -   Gemini ha sido el motor principal para generar el código de R
 
-+ he aprendido muchas cosas: filosofía del tidyverse, comprensión más profunda de los bucles, técnicas de web scrapping, técnicas de análisis semánticos de textos, métodos evaluación de curricula, sobre coordinación de docencia en la universidad
+    -   La construcción del modelo conceptual teórico del análisis semántico se ha hecho combinando Gemini y Claude. Los resultados propuestos por Gemini fueron enviados a Claude para su crítica. La devolución de esta última herramienta se integró en Gemini. Tras varios procesos iterativos se llegó a un marco conceptual sólido que es el que se transformó a Código con Gemini.
 
-+ Lo anterior ha sido posible porque partía de cierto conocimiento previo:
+-   he aprendido muchas cosas: filosofía del tidyverse, comprensión más profunda de los bucles, técnicas de web scrapping, técnicas de análisis semánticos de textos, métodos evaluación de curricula, sobre coordinación de docencia en la universidad
 
-     + Profundo conocimiento sobre bases de datos relacionales.
-     + Conocimiento básico sobre R y programación.
-     + Conocimiento básico sobre análisis semántico
+-   Lo anterior ha sido posible porque partía de cierto conocimiento previo:
 
-
+    -   Profundo conocimiento sobre bases de datos relacionales.
+    -   Conocimiento básico sobre R y programación.
+    -   Conocimiento básico sobre análisis semántico
