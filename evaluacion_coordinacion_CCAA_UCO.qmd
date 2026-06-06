@@ -32,23 +32,19 @@ execute:
   message: false                 # Puga los mensajes informativos del sistema o de ggplot2
 ---
 
-
 # Introducción y objetivos
 
-[EL PAPEL DE LA COORDINACIÓN DOCENTE EN EL APRENDIZAJE
+EL PAPEL DE LA COORDINACIÓN DOCENTE EN EL APRENDIZAJE
 
-DIFICULTADES PARA ... PENSAR CÓMO ORGANIZAR ESTO]
+DIFICULTADES PARA ... PENSAR CÓMO ORGANIZAR ESTO
 
 El objetivo de este informe es evaluar de manera cuantitativa las relaciones semánticas que hay entre las asignaturas del grado de Ciencias Ambientales tal y como se describen en las guías docentes oficiales. Los resultados obtenidos pueden usarse para mejorar la coordinación de la impartición de contenidos en dicho grado.
 
-[INCLUIR ENTRE LOS OBJETIVOS:
-+ IDENTIFICAR COORDINACIÓN REAL
-+ IDENTIFICAR DEPENDENCIAS ENTRE ASIGNATURAS. INSTRUMENTALES
-+ IDENTIFICAR CANDIDATAS A SOLAPE]
+INCLUIR ENTRE LOS OBJETIVOS: + IDENTIFICAR COORDINACIÓN REAL + IDENTIFICAR DEPENDENCIAS ENTRE ASIGNATURAS. INSTRUMENTALES + IDENTIFICAR CANDIDATAS A SOLAPE
 
 # Metodología
 
-[EXPLICITAR QUE ESTA METODOLOGÍA PERSIGUE SATISFACER LOS OBJETIVOS ANTERIORES]
+EXPLICITAR QUE ESTA METODOLOGÍA PERSIGUE SATISFACER LOS OBJETIVOS ANTERIORES
 
 La metodología propuesta se basa en técnicas de minería de texto y análisis de similitud del texto contenido en las guías docentes. Implica, en términos generales, los siguientes pasos:
 
@@ -74,15 +70,11 @@ La metodología propuesta se basa en técnicas de minería de texto y análisis 
 
 Este documento muestra el procedimiento seguido tras aplicar la metodología anterior. Es un documento ejecutable y reproducible en R. Los detalles metodológicos de cada uno de los pasos descritos anteriormente, se muestran en las siguientes secciones.
 
-
-
 ::: callout-note
 ## Requisitos previos de ejecución
 
-Para ejecutar el siguiente flujo de trabajo  en un entorno local de RStudio, es necesario contar con las librerías `tidyverse` y `rvest` previamente instaladas en el sistema a través de la consola de R empleando el comando `install.packages(c("tidyverse", "tidygraph", "tidytext", "rvest", "ggraph","tm" ))`.
+Para ejecutar el siguiente flujo de trabajo en un entorno local de RStudio, es necesario contar con las librerías `tidyverse` y `rvest` previamente instaladas en el sistema a través de la consola de R empleando el comando `install.packages(c("tidyverse", "tidygraph", "tidytext", "rvest", "ggraph","tm" ))`.
 :::
-
-
 
 ## Descarga automática de guías docentes
 
@@ -92,9 +84,9 @@ Para garantizar la reproducibilidad de la auditoría y mitigar los sesgos deriva
 
 Durante su ejecución se observan algunos errores. Hay algunos documentos que, aunque constan como PDFs en la web, no lo son.
 
-
 ```{r}
 #| label: configuracion-entorno-y-descarga
+#| code-fold: true
 #| eval: false
 #| echo: true
 
@@ -166,6 +158,7 @@ El siguiente paso, una vez descargados los archivos de las guías docentes, cons
 
 ```{r}
 #| label: paquetes-rutas-relativas
+#| code-fold: true
 #| eval: true
 #| echo: true
 
@@ -197,6 +190,7 @@ La siguiente línea de código crea el objeto que será usado a continuación pa
 
 ```{r}
 #| label: carga-nombres-siglas-asignaturas
+#| code-fold: true
 #| eval: true
 #| echo: true
 
@@ -224,6 +218,7 @@ El resultado de esta fase se puede ver [aquí](#sec-resultado-corpus)
 
 ```{r}
 #| label: extraccion-textual-y-normalizacion
+#| code-fold: true
 #| eval: true
 #| echo: true
 # ==============================================================================
@@ -344,8 +339,7 @@ corpus_busqueda <- datos_guias %>%
 
 El primer paso una vez que se ha construido el Corpus de conocimiento, es identificar los actos de coordinación explícitos que hay en el grado.
 
-
-[HABLAR DE LO IMPORTANTE QUE ES LA COORDINACIÓN Y SUS EFECTOS POSITIVOS EN EL APRENDIZAJE. BUSCAR LITERATURA QUE LO AVALE]
+\[HABLAR DE LO IMPORTANTE QUE ES LA COORDINACIÓN Y SUS EFECTOS POSITIVOS EN EL APRENDIZAJE. BUSCAR LITERATURA QUE LO AVALE\]
 
 Consideramos que hay coordinación real cuando en una guía docente se menciona explícitamente el nombre de otra asignatura. Esta condición debe de cumplirse o bien en la sección de "contenidos teóricos" o en la de "contenidos prácticos". Asumimos que esto es coordinación explícita porque la mención de asignaturas en las secciones de contenidos implican que hay una relación directa entre las asignaturas. Es decir, sus contenidos están tan integrados que los profesores consideran importante hacer menciones a otras asignaturas cuando explican los contenidos de la suya.
 
@@ -359,6 +353,7 @@ Para identificar automáticamente estas relaciones, procedemos de la siguiente f
 
 ```{r}
 #| label: relaciones-explicitas-nominales
+#| code-fold: true
 #| eval: true
 #| echo: true
 
@@ -440,6 +435,7 @@ La revisión anterior implica identificar qué relaciones son reales y purgar el
 
 ```{r}
 #| label: filtro-experto-relaciones-explicitas
+#| code-fold: true
 #| eval: true
 #| echo: true
 
@@ -541,8 +537,9 @@ relaciones_dependencia_detectadas <- dependencias_brutas %>%
 
 ## Generación de un índice de similitud léxica entre asignaturas del grado {#sec-metodo-similitud}
 
-Una vez identificadas las relaciones de coordinación explícita y las relaciones de dependencia entre asignaturas, es momento de abordar una de las principales fuentes de preocupación de los profesores y de malestar de los estudiantes: la duplicidad de contenidos entre asignaturas. 
+Una vez identificadas las relaciones de coordinación explícita y las relaciones de dependencia entre asignaturas, es momento de abordar una de las principales fuentes de preocupación de los profesores y de malestar de los estudiantes: la duplicidad de contenidos entre asignaturas.
 
+En [esta](#sec-resultado-similitud) sección se muestran los resultados obtenidos.
 
 ```{r}
 #| label: pipeline-similitud-tfidf
@@ -660,6 +657,123 @@ similitud_tfidf_detectada <- as.data.frame(as.table(matriz_coseno_tfidf)) %>%
   arrange(desc(coseno_tfidf))
 
 ```
+
+## Generación de un índice de convergencia semántica entre asignaturas
+
+```{r}
+```{r}
+#| label: pipeline-similitud-lsa
+#| code-fold: true
+#| eval: true
+#| echo: true
+
+
+
+# ==============================================================================
+# FASE 6: AUDITORÍA SEMÁNTICA LATENTE (LSA) - CORREGIDO
+# ==============================================================================
+
+
+
+library(quanteda)
+library(quanteda.textmodels)
+
+# 1. CONSTRUCCIÓN DEL CORPUS Y MATRIZ DE TÉRMINOS (DFM)
+corpus_quanteda <- corpus(corpus_busqueda, text_field = "texto_unificado", docid_field = "codigo")
+
+tokens_conceptos <- tokens(corpus_quanteda, 
+                           remove_punct = TRUE, 
+                           remove_numbers = TRUE, 
+                           remove_symbols = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(stopwords("es")) %>%
+  tokens_remove(c("asignatura", "créditos", "curso", "grados", "universidad", "córdoba", "uco",
+                   "tema", "bloque", "contenido", "contenidos", "teoría", "práctica", "prácticas",
+                   "programa", "descripción", "módulo", "departamento", "profesor", "profesorado",
+                   "anual", "cuatrimestre", "semestre", "duración", "código", "denominación",
+                   "breve", "conocimientos", "previos", "necesarios", "bibliografía", "unidades", "aprendizaje",
+                   "incluye", "alumnado", "así", "autoaprendizaje", "comprender", "entender", "aprobar", "igual",
+                   "moodle", "manera", "medio","ejercicios", "problemas", "cuestiones", "planteadas", "componen", "resolución",
+                   "general", "generales", "seminario", "seminarios", "correspondientes", "desarrollo", "ejemplos", "areas", "docente",
+                   "fecha", "in", "pág", "alumno", "i", "ii", "iii"))
+
+
+
+dfm_inicial <- dfm(tokens_conceptos)
+dfm_tfidf   <- dfm_tfidf(dfm_inicial)
+
+# ==============================================================================
+# 2. REDUCCIÓN ALGEBRAICA DE DIMENSIONES (LSA VIA SVD NATIVO DE R)
+# ==============================================================================
+
+# Convertimos la matriz DFM de quanteda en una matriz matemática estándar de R
+matriz_tfidf_numerica <- as.matrix(dfm_tfidf)
+
+num_asignaturas_reales <- nrow(matriz_tfidf_numerica)
+cat("Número de asignaturas detectadas en el corpus:", num_asignaturas_reales, "\n")
+
+# Ajustamos las dimensiones latentes para el colapso semántico
+num_dimensiones_latentes <- min(10, num_asignaturas_reales - 1)
+
+cat("Aplicando SVD nativo. Reduciendo a", num_dimensiones_latentes, "conceptos latentes...\n")
+
+# svd() descompone la matriz en: u (documentos), d (valores singulares) y v (términos)
+svd_nativo <- svd(matriz_tfidf_numerica, nu = num_dimensiones_latentes, nv = 0)
+
+# Extraemos 'u', que contiene las coordenadas de nuestras asignaturas en el espacio latente
+coordenadas_asignaturas_lsa <- svd_nativo$u
+
+# Asignamos las siglas en mayúsculas como nombres de fila de la matriz
+rownames(coordenadas_asignaturas_lsa) <- corpus_busqueda$sigla
+
+cat("Matriz semántica latente construida correctamente mediante álgebra nativa.\n")
+
+# 3. CÁLCULO DE LA MATRIZ DE SIMILITUD DEL COSENO SEMÁNTICO
+cat("Calculando cosenos en el espacio latente...\n")
+
+calcular_coseno_matriz <- function(matriz) {
+  similitud <- matriz %*% t(matriz)
+  normas <- sqrt(rowSums(matriz^2))
+  matriz_coseno <- similitud / (normas %*% t(normas))
+  return(matriz_coseno)
+}
+
+matriz_similitud_semantica <- calcular_coseno_matriz(coordenadas_asignaturas_lsa)
+
+# ==============================================================================
+# 4. CONVERSIÓN A TABLA LONGITUDINAL ENRIQUECIDA CON NOMBRES COMPLETOS
+# ==============================================================================
+cat("Enriqueciendo la tabla de relaciones semánticas con nombres completos...\n")
+
+# 1. Creamos un diccionario local de equivalencias Sigla -> Nombre Completo
+diccionario_nombres <- corpus_busqueda %>%
+  distinct(sigla, nombre_completo = nombre_asignatura)
+
+# 2. Procesamos la matriz de cosenos y cruzamos los datos descriptivos
+tabla_relaciones_semanticas <- as.data.frame(as.table(matriz_similitud_semantica)) %>%
+  rename(sigla_A = Var1, sigla_B = Var2, similitud_lsa = Freq) %>%
+  # Filtros de higiene estructural: evitar duplicados simétricos y autorelaciones
+  filter(as.character(sigla_A) < as.character(sigla_B)) %>%
+  mutate(similitud_lsa = round(pmin(pmax(similitud_lsa, 0), 1), 4)) %>%
+  
+  # Cruce 1: Inyectamos el nombre completo de la Asignatura A
+  left_join(diccionario_nombres, by = c("sigla_A" = "sigla")) %>%
+  rename(nombre_A = nombre_completo) %>%
+  
+  # Cruce 2: Inyectamos el nombre completo de la Asignatura B
+  left_join(diccionario_nombres, by = c("sigla_B" = "sigla")) %>%
+  rename(nombre_B = nombre_completo) %>%
+  
+  # Reorganizamos las columnas para que la lectura humana sea intuitiva y lógica
+  select(sigla_A, nombre_A, sigla_B, nombre_B, similitud_lsa) %>%
+  # Ordenamos de forma descendente por la fuerza del solapamiento semántico
+  arrange(desc(similitud_lsa))
+
+
+```
+
+
+
 
 
 # Resultados
@@ -1119,9 +1233,6 @@ mapa_dependencias_plot
 
 ## Similitud léxica entre asignaturas del grado {#sec-resultado-similitud}
 
-
-
-
 ```{r}
 #| label: grafico-red-similitud-tfidf
 #| code-fold: true
@@ -1292,16 +1403,23 @@ mapa_tfidf_plot
 
 ```
 
-
-
-
-
-
 ## Convergencia semántica latente entre asignaturas del grado
 
 ## Afinidad conceptual más allá de la coincidencia terminológica
 
 ## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
+
+Aquí estaría guay hacer una tabla final que sintetizara los valores de cada relación entre asignaturas para cada uno de los índices que hemos creado.
+
+-   Coordinación explícita. Binario.Sí-NO
+
+-   RElación de dependencia. Binario. Sí-No
+
+-   Similitud según TF-ID. Continuo.
+
+-   Similitud según LSA. Continuo
+
+A estos valores aplicamos las reglas heurísticas que hemos inventado. Quizás se puede aplicar también la lógica difusa y asignar porcentages de pertenencia de cada relación a los distintos tipos de asignaturasd...
 
 # Discusión
 
