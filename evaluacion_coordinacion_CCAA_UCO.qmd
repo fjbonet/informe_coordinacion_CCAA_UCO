@@ -225,12 +225,11 @@ El resultado de esta fase se puede ver [aquí](#sec-resultado-corpus)
 # Se inicia el bucle de extracción de texto de las guías
 # ==============================================================================
 
-
-datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
+datos_guias_inicial <- purrr::map_df(archivos_pdf, function(ruta) {
   
-  texto_completo <- pdf_text(ruta) %>% 
-    paste(collapse = " ") %>% 
-    str_replace_all("\\s+", " ")
+  # 1. LECTURA VECTORIAL POR PÁGINAS (Preservamos los saltos de línea con \n)
+  texto_paginas <- pdftools::pdf_text(ruta)
+  texto_completo <- paste(texto_paginas, collapse = "\n")
   
   # ============================================================================
   # Extracción de metadatos básicos de cada asignatura
@@ -238,7 +237,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
   pos_asig <- str_locate(texto_completo, "(?i)Denominación:")[1, "end"]
   asig_val <- if(!is.na(pos_asig)) {
     str_sub(texto_completo, start = pos_asig + 1, end = pos_asig + 150) %>% 
-      str_split("(?i)Código:") %>% .[[1]] %>% .[1] %>% str_trim()
+      str_split("(?i)Código:") %>% .[[1]] %>% .[1] %>% str_replace_all("\\s+", " ") %>% str_trim()
   } else { NA_character_ }
   
   pos_cod <- str_locate(texto_completo, "(?i)Código:")[1, "end"]
@@ -256,24 +255,43 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
   pos_duracion <- str_locate(texto_completo, "(?i)Duración:")[1, "end"]
   cuat_val <- if(!is.na(pos_duracion)) {
     str_sub(texto_completo, start = pos_duracion + 1, end = pos_duracion + 60) %>% 
-      str_trim() %>% 
+      str_replace_all("\\s+", " ") %>% str_trim() %>% 
       str_extract("^\\w+\\s+\\w+")
   } else { NA_character_ }
   
   # ============================================================================
-  # Extracción de secciones específicas de contenido para el análisis 
+  # Extracción de secciones específicas (Enfoque de Filtrado por Línea de Plantilla Web)
   # ============================================================================
   recortar_seccion <- function(texto, baliza_inicio, baliza_fin) {
-    ini <- str_locate(texto, regex(baliza_inicio, ignore_case = TRUE))[1, "end"]
-    fin <- str_locate(texto, regex(baliza_fin, ignore_case = TRUE))[1, "start"]
+    
+    # Separamos el texto en líneas reales e independientes
+    lineas_crudas <- unlist(strsplit(texto, "\\r?\\n"))
+    
+    # Patrones fijos que inyecta de forma automatizada la aplicación web en los pies de página
+    patrones_ruido_web <- c("CURSO 2025/26", "CURSO 2026/27", "PÁG\\.", "GUÍA DOCENTE")
+    
+    # Eliminamos cualquier línea que contenga trazas de la plantilla de control
+    lineas_saneadas <- lineas_crudas[!base::sapply(lineas_crudas, function(linea) {
+      any(stringr::str_detect(linea, regex(patrones_ruido_web, ignore_case = TRUE)))
+    })]
+    
+    # Reconstruimos el bloque operativo de la guía
+    texto_purgado <- paste(lineas_saneadas, collapse = "\n")
+    
+    # Aplicación de las balizas sobre el texto limpio de ruido institucional
+    ini <- str_locate(texto_purgado, regex(baliza_inicio, ignore_case = TRUE))[1, "end"]
+    fin <- str_locate(texto_purgado, regex(baliza_fin, ignore_case = TRUE))[1, "start"]
+    
     if (!is.na(ini) & !is.na(fin) & (fin > ini)) {
-      return(str_sub(texto, start = ini + 1, end = fin - 1) %>% str_trim())
+      # Devolvemos la sección colapsando los espacios múltiples solo al final del proceso
+      return(str_sub(texto_purgado, start = ini + 1, end = fin - 1) %>% 
+               str_replace_all("\\s+", " ") %>% str_trim())
     } else { 
       return(NA_character_) 
     }
   }
   
-  # Secciones de contenidos y requisitos
+  # Secciones de contenidos y requisitos sin interferencias
   req_val  <- recortar_seccion(texto_completo,
                                "Requisitos previos establecidos en el plan de estudios",
                                "Recomendaciones")
@@ -287,7 +305,7 @@ datos_guias_inicial <- map_df(archivos_pdf, function(ruta) {
                                 "Bibliografía")
   
   tibble(
-    archivo                 = basename(ruta),
+    archivo                = basename(ruta),
     nombre_asignatura      = asig_val,
     codigo                 = cod_val,
     curso                  = curso_val,
@@ -319,8 +337,7 @@ if (file.exists(siglas_nombres_asignaturas)) {
     select(-sigla_clean)
 } else {
   datos_guias <- datos_guias_inicial %>% mutate(sigla = codigo)
-  cat("Advertencia: No se encontró el archivo CSV de siglas. 
-      Usando códigos como identificador.\n")
+  cat("Advertencia: No se encontró el archivo CSV de siglas. Usando códigos como identificador.\n")
 }
 
 # ==============================================================================
@@ -329,8 +346,9 @@ if (file.exists(siglas_nombres_asignaturas)) {
 corpus_busqueda <- datos_guias %>%
   filter(!is.na(nombre_asignatura)) %>%
   mutate(
-    texto_unificado = tolower(paste(descripcion_contenidos, contenidos_teoricos,
-                                    contenidos_practicos, sep = " ")),
+    texto_unificado = tolower(paste(coalesce(descripcion_contenidos, ""), 
+                                    coalesce(contenidos_teoricos, ""),
+                                    coalesce(contenidos_practicos, ""), sep = " ")),
     nombre_limpio   = tolower(str_trim(nombre_asignatura))
   )
 ```
@@ -661,19 +679,14 @@ similitud_tfidf_detectada <- as.data.frame(as.table(matriz_coseno_tfidf)) %>%
 ## Generación de un índice de convergencia semántica entre asignaturas
 
 ```{r}
-```{r}
 #| label: pipeline-similitud-lsa
 #| code-fold: true
 #| eval: true
 #| echo: true
 
-
-
 # ==============================================================================
-# FASE 6: AUDITORÍA SEMÁNTICA LATENTE (LSA) - CORREGIDO
+# FASE 6: AUDITORÍA SEMÁNTICA LATENTE (LSA) - OPTIMIZADO Y SINCRONIZADO
 # ==============================================================================
-
-
 
 library(quanteda)
 library(quanteda.textmodels)
@@ -697,78 +710,101 @@ tokens_conceptos <- tokens(corpus_quanteda,
                    "general", "generales", "seminario", "seminarios", "correspondientes", "desarrollo", "ejemplos", "areas", "docente",
                    "fecha", "in", "pág", "alumno", "i", "ii", "iii"))
 
-
-
 dfm_inicial <- dfm(tokens_conceptos)
 dfm_tfidf   <- dfm_tfidf(dfm_inicial)
 
 # ==============================================================================
-# 2. REDUCCIÓN ALGEBRAICA DE DIMENSIONES (LSA VIA SVD NATIVO DE R)
+# 2. REDUCCIÓN ALGEBRAICA DE DIMENSIONES (LSA VÍA SVD SINCRONIZADO)
 # ==============================================================================
 
 # Convertimos la matriz DFM de quanteda en una matriz matemática estándar de R
 matriz_tfidf_numerica <- as.matrix(dfm_tfidf)
 
 num_asignaturas_reales <- nrow(matriz_tfidf_numerica)
-cat("Número de asignaturas detectadas en el corpus:", num_asignaturas_reales, "\n")
+cat("Número de asignaturas detectadas en el corpus numérico:", num_asignaturas_reales, "\n")
 
 # Ajustamos las dimensiones latentes para el colapso semántico
 num_dimensiones_latentes <- min(10, num_asignaturas_reales - 1)
-
 cat("Aplicando SVD nativo. Reduciendo a", num_dimensiones_latentes, "conceptos latentes...\n")
 
-# svd() descompone la matriz en: u (documentos), d (valores singulares) y v (términos)
+# Descomposición en Valores Singulares (SVD)
 svd_nativo <- svd(matriz_tfidf_numerica, nu = num_dimensiones_latentes, nv = 0)
 
-# Extraemos 'u', que contiene las coordenadas de nuestras asignaturas en el espacio latente
+# Extraemos 'u' (Coordenadas de las asignaturas en el espacio latente reducido)
 coordenadas_asignaturas_lsa <- svd_nativo$u
 
-# Asignamos las siglas en mayúsculas como nombres de fila de la matriz
-rownames(coordenadas_asignaturas_lsa) <- corpus_busqueda$sigla
+# CRÍTICO - CORRECCIÓN DE SINCRONÍA: 
+# Extraemos los identificadores (códigos) directamente del DFM para evitar desalineaciones
+ codigos_validos_dfm <- docnames(dfm_tfidf)
 
-cat("Matriz semántica latente construida correctamente mediante álgebra nativa.\n")
+# Mapeamos los códigos válidos con el diccionario de siglas original para no perder el orden
+mapeo_siglas_ordenado <- tibble(codigo = as.character(codigos_validos_dfm)) %>%
+  left_join(corpus_busqueda %>% mutate(codigo = as.character(codigo)) %>% distinct(codigo, sigla), by = "codigo") %>%
+  mutate(sigla_final = coalesce(sigla, codigo))
 
-# 3. CÁLCULO DE LA MATRIZ DE SIMILITUD DEL COSENO SEMÁNTICO
+# Asignamos las siglas correctas alineadas milimétricamente con las filas de la matriz
+rownames(coordenadas_asignaturas_lsa) <- mapeo_siglas_ordenado$sigla_final
+
+cat("Matriz semántica latente construida y alineada correctamente.\n")
+
+# ==============================================================================
+# 3. CÁLCULO DE LA MATRIZ DE SIMILITUD DEL COSENO SEMÁNTICO (CONTROLADO)
+# ==============================================================================
 cat("Calculando cosenos en el espacio latente...\n")
 
 calcular_coseno_matriz <- function(matriz) {
   similitud <- matriz %*% t(matriz)
   normas <- sqrt(rowSums(matriz^2))
+  
+  # Evitamos la división por cero si un vector de asignatura se redujo a la nulidad absoluta
+  normas[normas == 0] <- 1e-10
+  
   matriz_coseno <- similitud / (normas %*% t(normas))
   return(matriz_coseno)
 }
 
 matriz_similitud_semantica <- calcular_coseno_matriz(coordenadas_asignaturas_lsa)
 
-# ==============================================================================
-# 4. CONVERSIÓN A TABLA LONGITUDINAL ENRIQUECIDA CON NOMBRES COMPLETOS
-# ==============================================================================
-cat("Enriqueciendo la tabla de relaciones semánticas con nombres completos...\n")
+# Ajustamos la diagonal principal para evitar imprecisiones de coma flotante
+diag(matriz_similitud_semantica) <- 1
 
-# 1. Creamos un diccionario local de equivalencias Sigla -> Nombre Completo
+# ==============================================================================
+# 4. CONVERSIÓN A TABLA LONGITUDINAL ENRIQUECIDA
+# ==============================================================================
+cat("Enriqueciendo la tabla de relaciones semánticas LSA...\n")
+
+# Diccionario de equivalencias Sigla -> Nombre Completo extraído del corpus real
 diccionario_nombres <- corpus_busqueda %>%
   distinct(sigla, nombre_completo = nombre_asignatura)
 
-# 2. Procesamos la matriz de cosenos y cruzamos los datos descriptivos
+# Procesamos la matriz de cosenos y cruzamos los datos descriptivos
 tabla_relaciones_semanticas <- as.data.frame(as.table(matriz_similitud_semantica)) %>%
+  as_tibble() %>% # Convertimos a tibble para un manejo eficiente de memoria
   rename(sigla_A = Var1, sigla_B = Var2, similitud_lsa = Freq) %>%
-  # Filtros de higiene estructural: evitar duplicados simétricos y autorelaciones
-  filter(as.character(sigla_A) < as.character(sigla_B)) %>%
+  
+  # Forzamos conversión a caracteres para evitar advertencias de tipado en los joins
+  mutate(
+    sigla_A = as.character(sigla_A),
+    sigla_B = as.character(sigla_B)
+  ) %>%
+  
+  # Filtros de higiene estructural: eliminar duplicados simétricos (mitad superior de la matriz)
+  filter(sigla_A < sigla_B) %>%
+  
+  # Acotamos el rango del coseno matemáticamente entre [0, 1] ante posibles desvíos numéricos mínimos de SVD
   mutate(similitud_lsa = round(pmin(pmax(similitud_lsa, 0), 1), 4)) %>%
   
-  # Cruce 1: Inyectamos el nombre completo de la Asignatura A
+  # Cruces con el diccionario para recuperar la descripción humana
   left_join(diccionario_nombres, by = c("sigla_A" = "sigla")) %>%
   rename(nombre_A = nombre_completo) %>%
   
-  # Cruce 2: Inyectamos el nombre completo de la Asignatura B
   left_join(diccionario_nombres, by = c("sigla_B" = "sigla")) %>%
   rename(nombre_B = nombre_completo) %>%
   
-  # Reorganizamos las columnas para que la lectura humana sea intuitiva y lógica
   select(sigla_A, nombre_A, sigla_B, nombre_B, similitud_lsa) %>%
-  # Ordenamos de forma descendente por la fuerza del solapamiento semántico
   arrange(desc(similitud_lsa))
 
+cat("Proceso de Auditoría LSA finalizado con éxito.\n")
 
 ```
 
@@ -1411,13 +1447,13 @@ mapa_tfidf_plot
 
 Aquí estaría guay hacer una tabla final que sintetizara los valores de cada relación entre asignaturas para cada uno de los índices que hemos creado.
 
--   Coordinación explícita. Binario.Sí-NO
+-   Coordinación explícita. Binario.Sí-NO. `tabla_relaciones_explicitas_verificadas`
 
--   RElación de dependencia. Binario. Sí-No
+-   RElación de dependencia. Binario. Sí-No. `relaciones_dependencia_detectada`
 
--   Similitud según TF-ID. Continuo.
+-   Similitud según TF-ID. Continuo. `similitud_tfidf_detectada`
 
--   Similitud según LSA. Continuo
+-   Similitud según LSA. Continuo `tabla_relaciones_semanticas`
 
 A estos valores aplicamos las reglas heurísticas que hemos inventado. Quizás se puede aplicar también la lógica difusa y asignar porcentages de pertenencia de cada relación a los distintos tipos de asignaturasd...
 
