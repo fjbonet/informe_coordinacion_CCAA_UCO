@@ -657,22 +657,48 @@ matriz_coseno_tfidf <- (matriz_matematica %*% t(matriz_matematica)) / (magnitude
 matriz_coseno_tfidf[is.nan(matriz_coseno_tfidf)] <- 0
 
 # ==============================================================================
-# Reestructuración en la lista (SIMILITUD TF-IDF)
+# Reestructuración a formato longitudinal con precisión escalar (SANEADO)
 # ==============================================================================
-similitud_tfidf_detectada <- as.data.frame(as.table(matriz_coseno_tfidf)) %>%
-  as_tibble() %>%
-  rename(codigo_1 = Var1, codigo_2 = Var2, coseno_tfidf = Freq) %>%
+cat("Transformando matriz de cosenos TF-IDF mediante indexación vectorial pura...\n")
+
+# 1. Aseguramos la diagonal principal para evitar imprecisiones de coma flotante
+diag(matriz_coseno_tfidf) <- 1
+
+# 2. Extraemos las coordenadas de la mitad inferior estricta (i > j)
+indices_inferiores_tfidf <- which(lower.tri(matriz_coseno_tfidf), arr.ind = TRUE)
+
+# 3. Construcción directa del data frame asociando los códigos unívocos
+similitud_tfidf_detectada <- tibble(
+  codigo_1 = rownames(matriz_coseno_tfidf)[indices_inferiores_tfidf[, 1]],
+  codigo_temp = colnames(matriz_coseno_tfidf)[indices_inferiores_tfidf[, 2]],
+  coseno_tfidf = matriz_coseno_tfidf[indices_inferiores_tfidf]
+) %>%
   mutate(
-    codigo_1 = as.character(codigo_1),
-    codigo_2 = as.character(codigo_2)
+    codigo_1 = str_trim(as.character(codigo_1)),
+    codigo_2 = str_trim(as.character(codigo_temp))
   ) %>%
-  # Filtros de redundancia geométrica
-  filter(codigo_1 < codigo_2) %>%
-  # Cruce con el corpus limpio original para recuperar nombres
-  left_join(corpus_operativo_tfidf %>% select(codigo_1 = codigo, sigla_1 = sigla, asig_1 = nombre_asignatura), by = "codigo_1") %>%
-  left_join(corpus_operativo_tfidf %>% select(codigo_2 = codigo, sigla_2 = sigla, asig_2 = nombre_asignatura), by = "codigo_2") %>%
+  select(-codigo_temp) %>%
+  
+  # Acotamos y normalizamos el rango del coseno en el intervalo estándar [0, 1]
+  mutate(coseno_tfidf = round(pmin(pmax(coseno_tfidf, 0), 1), 4)) %>%
+  
+  # Cruce 1: Inyectamos los metadatos reales de la Asignatura 1 usando su CÓDIGO
+  left_join(corpus_operativo_tfidf %>% 
+              mutate(codigo = as.character(codigo)) %>% 
+              select(codigo_1 = codigo, sigla_1 = sigla, asig_1 = nombre_asignatura), 
+            by = "codigo_1") %>%
+  
+  # Cruce 2: Inyectamos los metadatos reales de la Asignatura 2 usando su CÓDIGO
+  left_join(corpus_operativo_tfidf %>% 
+              mutate(codigo = as.character(codigo)) %>% 
+              select(codigo_2 = codigo, sigla_2 = sigla, asig_2 = nombre_asignatura), 
+            by = "codigo_2") %>%
+  
+  # Ordenación y presentación final del corpus semántico literal
   select(codigo_1, sigla_1, asig_1, codigo_2, sigla_2, asig_2, coseno_tfidf) %>%
   arrange(desc(coseno_tfidf))
+
+cat("Proceso TF-IDF finalizado. Guardadas", nrow(similitud_tfidf_detectada), "relaciones literales puras.\n")
 
 ```
 
@@ -685,13 +711,13 @@ similitud_tfidf_detectada <- as.data.frame(as.table(matriz_coseno_tfidf)) %>%
 #| echo: true
 
 # ==============================================================================
-# FASE 6: AUDITORÍA SEMÁNTICA LATENTE (LSA) - OPTIMIZADO Y SINCRONIZADO
+# FASE 6: AUDITORÍA SEMÁNTICA LATENTE (LSA) - INDEXACIÓN POR CÓDIGO ÚNICO
 # ==============================================================================
 
 library(quanteda)
 library(quanteda.textmodels)
 
-# 1. CONSTRUCCIÓN DEL CORPUS Y MATRIZ DE TÉRMINOS (DFM)
+# 1. CONSTRUCCIÓN DEL CORPUS INDEXADO POR CÓDIGO (Garantiza unicidad absoluta)
 corpus_quanteda <- corpus(corpus_busqueda, text_field = "texto_unificado", docid_field = "codigo")
 
 tokens_conceptos <- tokens(corpus_quanteda, 
@@ -714,101 +740,256 @@ dfm_inicial <- dfm(tokens_conceptos)
 dfm_tfidf   <- dfm_tfidf(dfm_inicial)
 
 # ==============================================================================
-# 2. REDUCCIÓN ALGEBRAICA DE DIMENSIONES (LSA VÍA SVD SINCRONIZADO)
+# 2. REDUCCIÓN ALGEBRAICA DE DIMENSIONES (SVD SOBRE CÓDIGOS)
 # ==============================================================================
-
-# Convertimos la matriz DFM de quanteda en una matriz matemática estándar de R
 matriz_tfidf_numerica <- as.matrix(dfm_tfidf)
 
 num_asignaturas_reales <- nrow(matriz_tfidf_numerica)
-cat("Número de asignaturas detectadas en el corpus numérico:", num_asignaturas_reales, "\n")
+cat("Número de asignaturas unívocas detectadas (por código):", num_asignaturas_reales, "\n")
 
-# Ajustamos las dimensiones latentes para el colapso semántico
+# Configuración de las dimensiones del espacio latente
 num_dimensiones_latentes <- min(10, num_asignaturas_reales - 1)
-cat("Aplicando SVD nativo. Reduciendo a", num_dimensiones_latentes, "conceptos latentes...\n")
+cat("Aplicando SVD. Reduciendo a", num_dimensiones_latentes, "conceptos latentes...\n")
 
-# Descomposición en Valores Singulares (SVD)
 svd_nativo <- svd(matriz_tfidf_numerica, nu = num_dimensiones_latentes, nv = 0)
-
-# Extraemos 'u' (Coordenadas de las asignaturas en el espacio latente reducido)
 coordenadas_asignaturas_lsa <- svd_nativo$u
 
-# CRÍTICO - CORRECCIÓN DE SINCRONÍA: 
-# Extraemos los identificadores (códigos) directamente del DFM para evitar desalineaciones
- codigos_validos_dfm <- docnames(dfm_tfidf)
-
-# Mapeamos los códigos válidos con el diccionario de siglas original para no perder el orden
-mapeo_siglas_ordenado <- tibble(codigo = as.character(codigos_validos_dfm)) %>%
-  left_join(corpus_busqueda %>% mutate(codigo = as.character(codigo)) %>% distinct(codigo, sigla), by = "codigo") %>%
-  mutate(sigla_final = coalesce(sigla, codigo))
-
-# Asignamos las siglas correctas alineadas milimétricamente con las filas de la matriz
-rownames(coordenadas_asignaturas_lsa) <- mapeo_siglas_ordenado$sigla_final
-
-cat("Matriz semántica latente construida y alineada correctamente.\n")
+# ASIGNACIÓN CLAVE: Las filas de la matriz se indexan por el CÓDIGO DOCNAMES del DFM
+rownames(coordenadas_asignaturas_lsa) <- docnames(dfm_tfidf)
+colnames(coordenadas_asignaturas_lsa) <- paste0("DimLatente_", 1:num_dimensiones_latentes)
 
 # ==============================================================================
-# 3. CÁLCULO DE LA MATRIZ DE SIMILITUD DEL COSENO SEMÁNTICO (CONTROLADO)
+# 3. CÁLCULO DE LA MATRIZ DE SIMILITUD DEL COSENO SEMÁNTICO
 # ==============================================================================
-cat("Calculando cosenos en el espacio latente...\n")
-
 calcular_coseno_matriz <- function(matriz) {
   similitud <- matriz %*% t(matriz)
   normas <- sqrt(rowSums(matriz^2))
-  
-  # Evitamos la división por cero si un vector de asignatura se redujo a la nulidad absoluta
-  normas[normas == 0] <- 1e-10
+  normas[normas == 0] <- 1e-10  # Cortafuegos contra indeterminaciones de vectores vacíos
   
   matriz_coseno <- similitud / (normas %*% t(normas))
   return(matriz_coseno)
 }
 
 matriz_similitud_semantica <- calcular_coseno_matriz(coordenadas_asignaturas_lsa)
-
-# Ajustamos la diagonal principal para evitar imprecisiones de coma flotante
-diag(matriz_similitud_semantica) <- 1
+diag(matriz_similitud_semantica) <- 1  # Forzamos la identidad perfecta de la diagonal
 
 # ==============================================================================
-# 4. CONVERSIÓN A TABLA LONGITUDINAL ENRIQUECIDA
+# 4. CONVERSIÓN A TABLA LONGITUDINAL ENRIQUECIDA (INDEXACIÓN VECTORIAL PURA)
 # ==============================================================================
-cat("Enriqueciendo la tabla de relaciones semánticas LSA...\n")
+cat("Enriqueciendo la tabla final mediante el cruce de claves primarias...\n")
 
-# Diccionario de equivalencias Sigla -> Nombre Completo extraído del corpus real
-diccionario_nombres <- corpus_busqueda %>%
-  distinct(sigla, nombre_completo = nombre_asignatura)
-
-# Procesamos la matriz de cosenos y cruzamos los datos descriptivos
-tabla_relaciones_semanticas <- as.data.frame(as.table(matriz_similitud_semantica)) %>%
-  as_tibble() %>% # Convertimos a tibble para un manejo eficiente de memoria
-  rename(sigla_A = Var1, sigla_B = Var2, similitud_lsa = Freq) %>%
-  
-  # Forzamos conversión a caracteres para evitar advertencias de tipado en los joins
+# 1. Diccionario de metadatos indexado obligatoriamente por CÓDIGO
+diccionario_mapeo <- corpus_busqueda %>%
   mutate(
-    sigla_A = as.character(sigla_A),
-    sigla_B = as.character(sigla_B)
+    codigo_clean    = str_trim(as.character(codigo)),
+    sigla_display   = str_trim(as.character(sigla)),
+    nombre_display  = str_trim(as.character(nombre_asignatura))
   ) %>%
+  distinct(codigo = codigo_clean, sigla_display, nombre_display)
+
+# 2. Extraemos las coordenadas de la mitad inferior estricta (i > j) por posición en la cuadrícula
+indices_inferiores <- which(lower.tri(matriz_similitud_semantica), arr.ind = TRUE)
+
+# 3. Construcción directa del data frame asociando los códigos unívocos
+tabla_relaciones_semanticas <- tibble(
+  codigo_A = rownames(matriz_similitud_semantica)[indices_inferiores[, 1]],
+  codigo_2 = colnames(matriz_similitud_semantica)[indices_inferiores[, 2]], # Temporal para renombrar limpio
+  similitud_lsa = matriz_similitud_semantica[indices_inferiores]
+) %>%
+  mutate(
+    codigo_A = str_trim(as.character(codigo_A)),
+    codigo_B = str_trim(as.character(codigo_2))
+  ) %>%
+  select(-codigo_2) %>%
   
-  # Filtros de higiene estructural: eliminar duplicados simétricos (mitad superior de la matriz)
-  filter(sigla_A < sigla_B) %>%
-  
-  # Acotamos el rango del coseno matemáticamente entre [0, 1] ante posibles desvíos numéricos mínimos de SVD
+  # Normalización del rango escalar del coseno semántico al intervalo [0, 1]
   mutate(similitud_lsa = round(pmin(pmax(similitud_lsa, 0), 1), 4)) %>%
   
-  # Cruces con el diccionario para recuperar la descripción humana
-  left_join(diccionario_nombres, by = c("sigla_A" = "sigla")) %>%
-  rename(nombre_A = nombre_completo) %>%
+  # CRUCE METADATOS A: Inyectamos los datos reales de la Asignatura A usando su CÓDIGO
+  left_join(diccionario_mapeo, by = c("codigo_A" = "codigo")) %>%
+  rename(sigla_A = sigla_display, nombre_A = nombre_display) %>%
   
-  left_join(diccionario_nombres, by = c("sigla_B" = "sigla")) %>%
-  rename(nombre_B = nombre_completo) %>%
+  # CRUCE METADATOS B: Inyectamos los datos reales de la Asignatura B usando su CÓDIGO
+  left_join(diccionario_mapeo, by = c("codigo_B" = "codigo")) %>%
+  rename(sigla_B = sigla_display, nombre_B = nombre_display) %>%
   
-  select(sigla_A, nombre_A, sigla_B, nombre_B, similitud_lsa) %>%
+  # Reorganización ejecutiva final para la visualización del informe
+  select(codigo_A, sigla_A, nombre_A, codigo_B, sigla_B, nombre_B, similitud_lsa) %>%
   arrange(desc(similitud_lsa))
 
-cat("Proceso de Auditoría LSA finalizado con éxito.\n")
+
 
 ```
 
+## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
 
+### Combinación de todas las tablas de resultados parciales
+
+```{r}
+#| label: combina-resultados
+#| echo: false
+#| eval: true
+
+# ==============================================================================
+# FASE FINAL: CONSOLIDACIÓN DE LA MATRIZ MAESTRA DE RELACIONES DEL GRADO
+# ==============================================================================
+
+library(tidyverse)
+
+# 1. PREPARACIÓN Y HOMOGENEIZACIÓN DE LAS CUATRO CAPAS ANALÍTICAS
+# Forzamos cadenas de caracteres, limpiamos espacios y estandarizamos nombres de columnas
+
+capa_1_coordinacion <- tabla_relaciones_explicitas_verificadas %>%
+  mutate(
+    codigo_1 = str_trim(as.character(codigo_1)),
+    codigo_2 = str_trim(as.character(codigo_2)),
+    coordinacion_explicita = 1  # Flag indicador de existencia
+  ) %>%
+  select(codigo_1, codigo_2, coordinacion_explicita)
+
+capa_2_dependencia <- relaciones_dependencia_detectadas %>%
+  mutate(
+    codigo_1 = str_trim(as.character(codigo_origen)),   # Mapeo a estructura unificada
+    codigo_2 = str_trim(as.character(codigo_destino)),
+    dependencia_normativa = 1   # Flag indicador de existencia
+  ) %>%
+  select(codigo_1, codigo_2, dependencia_normativa)
+
+capa_3_tfidf <- similitud_tfidf_detectada %>%
+  mutate(
+    codigo_1 = str_trim(as.character(codigo_1)),
+    codigo_2 = str_trim(as.character(codigo_2)),
+    coseno_tfidf = as.numeric(coseno_tfidf)
+  ) %>%
+  select(codigo_1, codigo_2, coseno_tfidf)
+
+capa_4_lsa <- tabla_relaciones_semanticas %>%
+  mutate(
+    codigo_1 = str_trim(as.character(codigo_A)),       # Mapeo a estructura unificada
+    codigo_2 = str_trim(as.character(codigo_B)),
+    similitud_lsa = as.numeric(similitud_lsa)
+  ) %>%
+  select(codigo_1, codigo_2, similitud_lsa)
+
+# 2. INTEGRACIÓN RELACIONAL COMPLETA (FULL JOIN SECUENCIAL)
+# Aseguramos que no se pierda ninguna pareja, aparezca en la capa que aparezca
+matriz_maestra_codigos <- capa_1_coordinacion %>%
+  full_join(capa_2_dependencia, by = c("codigo_1", "codigo_2")) %>%
+  full_join(capa_3_tfidf,       by = c("codigo_1", "codigo_2")) %>%
+  full_join(capa_4_lsa,         by = c("codigo_1", "codigo_2"))
+
+# 3. FILTRADO GEOMÉTRICO DE REDUNDANCIAS Y REESTRUCTURACIÓN DE FLAGS
+# Si los joins introdujeron el par simétrico inverso debido a la direccionalidad 
+# de las dependencias, forzamos la orientación indexada (codigo_1 < codigo_2)
+matriz_maestra_limpia <- matriz_maestra_codigos %>%
+  # Aseguramos que el código menor siempre quede a la izquierda para colapsar duplicados
+  mutate(
+    c1_tmp = pmin(codigo_1, codigo_2),
+    c2_tmp = pmax(codigo_1, codigo_2)
+  ) %>%
+  select(-codigo_1, -codigo_2) %>%
+  rename(codigo_1 = c1_tmp, codigo_2 = c2_tmp) %>%
+  
+  # Agrupamos por pareja unívoca y consolidamos los valores máximos encontrados
+  group_by(codigo_1, codigo_2) %>%
+  summarise(
+    coordinacion_explicita = max(coordinacion_explicita, na.rm = TRUE),
+    dependencia_normativa  = max(dependencia_normativa, na.rm = TRUE),
+    coseno_tfidf           = max(coseno_tfidf, na.rm = TRUE),
+    similitud_lsa          = max(similitud_lsa, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  
+  # Filtro de higiene: eliminar bucles de auto-referencia (si existieran)
+  filter(codigo_1 != codigo_2) %>%
+  
+  # RECTIFICACIÓN DE VALORES NULOS: Convertimos -Inf (de max con NA) y NA reales a 0 o su valor escalar
+  mutate(
+    coordinacion_explicita = if_else(is.infinite(coordinacion_explicita) | is.na(coordinacion_explicita), 0, coordinacion_explicita),
+    dependencia_normativa  = if_else(is.infinite(dependencia_normativa) | is.na(dependencia_normativa), 0, dependencia_normativa),
+    coseno_tfidf           = if_else(is.infinite(coseno_tfidf) | is.na(coseno_tfidf), 0, coseno_tfidf),
+    similitud_lsa          = if_else(is.infinite(similitud_lsa) | is.na(similitud_lsa), 0, similitud_lsa)
+  )
+
+# 4. INYECCIÓN FINAL DE METADATOS DESCRIPTIVOS (NOMBRES Y SIGLAS DE LA UCO)
+# Extraemos el diccionario maestro directamente desde los datos de las guías originales
+diccionario_grados <- datos_guias %>%
+  mutate(codigo_clean = str_trim(as.character(codigo))) %>%
+  distinct(codigo = codigo_clean, sigla, nombre_asignatura)
+
+matriz_maestra_final <- matriz_maestra_limpia %>%
+  # Cruzamos los metadatos oficiales de la Asignatura 1
+  left_join(diccionario_grados, by = c("codigo_1" = "codigo")) %>%
+  rename(sigla_1 = sigla, asignatura_1 = nombre_asignatura) %>%
+  
+  # Cruzamos los metadatos oficiales de la Asignatura 2
+  left_join(diccionario_grados, by = c("codigo_2" = "codigo")) %>%
+  rename(sigla_2 = sigla, asignatura_2 = nombre_asignatura) %>%
+  
+  # Reorganización y maquetación de campos según el criterio del usuario
+  select(
+    codigo_1, sigla_1, asignatura_1,
+    codigo_2, sigla_2, asignatura_2,
+    coordinacion_explicita, dependencia_normativa, coseno_tfidf, similitud_lsa
+  ) %>%
+  # Ordenamos descendentemente priorizando los solapamientos latentes más intensos
+  arrange(desc(similitud_lsa), desc(coseno_tfidf))
+
+# 5. ALMACENAMIENTO DE SEGURIDAD EN LA CARPETA OUTPUTS
+if (!dir.exists("outputs")) dir.create("outputs", recursive = TRUE)
+write_csv2(matriz_maestra_final, "outputs/matriz_maestra_relaciones_CCAA.csv")
+
+cat("Matriz Maestra consolidada. Total de relaciones únicas indexadas:", nrow(matriz_maestra_final), "\n")
+
+
+```
+
+### Creación del índice Delta LSA TF-IDF
+
+```{r}
+# ==============================================================================
+# FASE COMPLEMENTARIA: CÁLCULO DEL DELTA SEMÁNTICO (LSA - TF-IDF)
+# ==============================================================================
+
+#| label: crea-delta-lsa-tfidf
+#| echo: false
+#| eval: true
+
+library(tidyverse)
+
+# 1. CÁLCULO DEL DELTA EN LA MATRIZ MAESTRA
+matriz_maestra_final <- matriz_maestra_final %>%
+  mutate(
+    # Computamos la discrepancia escalar entre ambos motores semánticos
+    delta_semantico = round(similitud_lsa - coseno_tfidf, 4)
+  ) %>%
+  # Reorganizamos las columnas para situar el Delta junto a sus matrices de origen
+  select(
+    codigo_1, sigla_1, asignatura_1,
+    codigo_2, sigla_2, asignatura_2,
+    coordinacion_explicita, dependencia_normativa, 
+    coseno_tfidf, similitud_lsa, delta_semantico
+  ) %>%
+  # Ordenamos descendentemente de forma que emerjan primero las divergencias más agudas
+  arrange(desc(delta_semantico))
+
+# 2. AUDITORÍA ESTADÍSTICA EXPANDIDA DEL DELTA
+cat("Resumen estadístico del Delta Semántico calculado:\n")
+print(summary(matriz_maestra_final$delta_semantico))
+
+# 3. IDENTIFICACIÓN LOGICIAL DE SOLAPAMIENTOS OCULTOS CRÍTICOS
+# Filtramos parejas que no se coordinan formalmente pero tienen un desfase latente severo
+solapamientos_ocultos <- matriz_maestra_final %>%
+  filter(coordinacion_explicita == 0 & delta_semantico > 0.50)
+
+cat("\nNúmero de alertas por solapamiento conceptual oculto detectadas (Delta > 0.50 sin coordinación):", 
+    nrow(solapamientos_ocultos), "\n")
+
+# 4. SOBREESCRITURA DE SEGURIDAD DEL DATASET CONSOLIDADO
+write_csv2(matriz_maestra_final, "outputs/matriz_maestra_relaciones_CCAA.csv")
+cat("Matriz Maestra actualizada y exportada con éxito en 'outputs/matriz_maestra_relaciones_CCAA.csv'.\n")
+
+```
 
 
 
@@ -1282,21 +1463,24 @@ library(tidyverse)
 library(tidygraph)
 library(ggraph)
 
-# 1. CARGA LOCAL DE DEPENDENCIAS CRÍTICAS
-library(tidyverse)
-library(tidygraph)
-library(ggraph)
 
-# 2. ENCAPSULACIÓN Y BLINDAJE DE DATOS DE ENTRADA
+# ==============================================================================
+# FASE 7 (TF-IDF): VISUALIZACIÓN DE LA RED DE SOLAPAMIENTO LITERAL (SANEADO)
+# ==============================================================================
+
+# 2. ENCAPSULACIÓN Y PARÁMETROS EXPERTOS DE ENTRADA
+umbral_tfidf_usuario <- 0.05  # 
+
 nodos_base_tfidf <- datos_guias %>%
   filter(!is.na(nombre_asignatura)) %>%
-  mutate(codigo = as.character(codigo))
+  mutate(codigo = str_trim(as.character(codigo)))
 
 aristas_base_tfidf <- similitud_tfidf_detectada %>%
-  filter(coseno_tfidf >= 0.1) %>%
+  # FILTRO DINÁMICO: Evaluamos en base a la variable del usuario
+  filter(coseno_tfidf >= umbral_tfidf_usuario) %>% 
   mutate(
-    codigo_1 = as.character(codigo_1),
-    codigo_2 = as.character(codigo_2)
+    codigo_1 = str_trim(as.character(codigo_1)),
+    codigo_2 = str_trim(as.character(codigo_2))
   )
 
 # 3. RECONSTRUCCIÓN DE LA REJILLA DE COORDENADAS INTERACTIVA (X, Y)
@@ -1326,9 +1510,20 @@ nodos_posicionados_tfidf <- nodos_base_tfidf %>%
 # 4. ENRUTAMIENTO SIMÉTRICO DE ARISTAS SEGÚN CURSO Y CUATRIMESTRE
 aristas_simetricas_tfidf <- aristas_base_tfidf %>%
   select(from = codigo_1, to = codigo_2, peso_coseno = coseno_tfidf) %>%
-  left_join(nodos_posicionados_tfidf %>% select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
-  left_join(nodos_posicionados_tfidf %>% select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
-  filter(!is.na(from) & !is.na(to)) %>%
+  
+  # Forzamos tipo carácter en las claves de enlace para evitar fallos de coerción
+  mutate(
+    from = as.character(from),
+    to   = as.character(to)
+  ) %>%
+  
+  # Cruce de coordenadas espaciales basado estrictamente en el CÓDIGO ÚNICO
+  left_join(nodos_posicionados_tfidf %>% mutate(codigo = as.character(codigo)) %>% 
+              select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
+  left_join(nodos_posicionados_tfidf %>% mutate(codigo = as.character(codigo)) %>% 
+              select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
+  filter(!is.na(curso_from) & !is.na(curso_to)) %>%
+  
   mutate(
     tipo_relacion = case_when(
       curso_from != curso_to ~ "Vertical (Cursos diferentes)",
@@ -1338,8 +1533,10 @@ aristas_simetricas_tfidf <- aristas_base_tfidf %>%
     )
   )
 
+# Ensamblaje del grafo garantizando la integridad de tipos
 nodes_final_tfidf <- nodos_posicionados_tfidf %>% 
-  rename(id = codigo)
+  rename(id = codigo) %>%
+  mutate(id = as.character(id))
 
 grafo_tfidf_final <- tbl_graph(
   nodes = nodes_final_tfidf, 
@@ -1347,41 +1544,45 @@ grafo_tfidf_final <- tbl_graph(
   directed = FALSE
 )
 
-# 5. CONSTRUCCIÓN VECTORIAL DEL MAPA SEMÁNTICO (CON GROSOR PROPORCIONAL AL COSENO)
+# ==============================================================================
+# 5. CONSTRUCCIÓN VECTORIAL DEL MAPA SEMÁNTICO (CON GROSOR PROPORCIONAL)
+# ==============================================================================
 mapa_tfidf_plot <- ggraph(grafo_tfidf_final, layout = "manual", x = x_coord, y = y_coord) +
   
   # CAPA 1: Relaciones inter-curso -> Mapeo dinámico de edge_width
   geom_edge_link(
     aes(filter = (tipo_relacion == "Vertical (Cursos diferentes)"), 
         color = tipo_relacion, 
-        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+        edge_width = peso_coseno),
     start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
     alpha = 0.5
   ) +
   
-  # CAPA 2: Relaciones intracuatrimestre -> Mapeo dinámico de edge_width
+  # CAPA 2: Relaciones intracuatrimestre -> Mapeo dinámico de edge_width (Arcos superiores)
   geom_edge_arc(
     aes(filter = (tipo_relacion == "Horizontal intracuatrimestre"), 
         color = tipo_relacion, 
-        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+        edge_width = peso_coseno),
     start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
     alpha = 0.7, strength = 0.08
   ) +
   
-  # CAPA 3: Relaciones intercuatrimestre -> Mapeo dinámico de edge_width
+  # CAPA 3: Relaciones intercuatrimestre -> Mapeo dinámico de edge_width (Arcos inferiores)
   geom_edge_arc(
     aes(filter = (tipo_relacion == "Horizontal intercuatrimestre"), 
         color = tipo_relacion, 
-        edge_width = peso_coseno), # ← MAPEO DINÁMICO DEL GROSOR
+        edge_width = peso_coseno),
     start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm'),
     alpha = 0.7, strength = -0.08
   ) +
   
+  # Capa de Nodos: Geometría fija uniforme
   geom_node_point(color = "#E67E22", size = 6) +
   
+  # Etiquetas mnemotécnicas (Inmunes a duplicaciones en el lienzo)
   geom_node_text(aes(label = sigla_display), vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50") +
   
-  # Paleta cromática corporativa
+  # Paleta cromática corporativa (Sincronizada con el mapa LSA para mantener consistencia)
   scale_edge_color_manual(
     name = "Tipología de relaciones",
     values = c(
@@ -1391,18 +1592,18 @@ mapa_tfidf_plot <- ggraph(grafo_tfidf_final, layout = "manual", x = x_coord, y =
     )
   ) +
   
-  # CONFIGURACIÓN ESCALADA DEL GROSOR DE LAS LÍNEAS (Mínimo 0.2, Máximo 1.5)
+# CONFIGURACIÓN ESCALADA DEL GROSOR (Sincronizada dinámicamente)
   scale_edge_width_continuous(
-    name = "Intensidad del solapamiento (Coseno TF-IDF)",
-    range = c(0.2, 1.5) # ← Controla el escalado físico para evitar distorsiones visuales
+    name = paste("Intensidad del solapamiento (Coseno TF-IDF >", umbral_tfidf_usuario, ")"),
+    range = c(0.2, 1.5)
   ) +
   
   scale_y_continuous(breaks = 1:4, labels = c("1º Curso", "2º Curso", "3º Curso", "4º Curso"), limits = c(0.1, 4.5)) +
   
   labs(
     title = "Mapa de solapamientos semánticos entre asignaturas mediante TF-IDF",
-    subtitle = "Análisis del espacio de palabras clave en las secciones de contenido de las guías docentes",
-    x = " 1er Cuatrimestre                               |              2º Cuatrimestre →", 
+    subtitle = paste("Análisis de coincidencia léxica literal en guías docentes (Umbral de control >", umbral_tfidf_usuario, ")"),
+    x = "← 1er Cuatrimestre                               |              2º Cuatrimestre →", 
     y = ""
   ) +
   
@@ -1441,7 +1642,201 @@ mapa_tfidf_plot
 
 ## Convergencia semántica latente entre asignaturas del grado
 
-## Afinidad conceptual más allá de la coincidencia terminológica
+
+
+
+```{r}
+#| code-fold: true
+#| eval: true
+#| echo: true
+#| fig-width: 11
+#| fig-height: 7
+#| label: grafica-afinidad-semantica
+
+
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+
+# ==============================================================================
+# FASE 7: VISUALIZACIÓN DE LA RED DE CONVERGENCIA SEMÁNTICA (CORREGIDO)
+# ==============================================================================
+
+# 1. ESTABILIZACIÓN DE LOS NODOS (REJILLA ESPACIAL INVARIABLE)
+nodos_posicionados <- datos_guias %>%
+  filter(!is.na(nombre_asignatura)) %>%
+  distinct(codigo, sigla, nombre_asignatura, curso, cuatrimestre) %>%
+  mutate(
+    curso_num = as.numeric(str_extract(curso, "\\d+")),
+    cuat_clean = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ 1,
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ 2,
+      TRUE ~ 1
+    ),
+    sigla_display = toupper(as.character(sigla))
+  ) %>%
+  filter(!is.na(curso_num)) %>%
+  arrange(curso_num, cuat_clean, codigo) %>%
+  group_by(curso_num, cuat_clean) %>%
+  mutate(pos_secuencial = row_number()) %>%
+  ungroup() %>%
+  mutate(
+    y_coord = curso_num,
+    x_coord = if_else(cuat_clean == 1, 
+                      pos_secuencial, 
+                      pos_secuencial + max(pos_secuencial) + 1.5)
+  )
+
+# 2. FILTRADO Y CLASIFICACIÓN GEOMÉTRICA DE ARISTAS (ENLACE POR CÓDIGO ÚNICO)
+umbral_usuario <- 0.7  # Ajustado de forma determinista a tu nuevo nivel de exigencia
+
+aristas_semanticas <- tabla_relaciones_semanticas %>%
+  # Cortafuegos de densidad LSA
+  filter(similitud_lsa > umbral_usuario) %>% 
+  
+  # SOLUCIÓN CRÍTICA: Asignamos origen y destino utilizando los códigos limpios ya presentes
+  mutate(
+    from = as.character(codigo_A),
+    to   = as.character(codigo_B)
+  ) %>%
+  
+  # Cruzamos coordenadas espaciales para determinar trayectorias en base al CÓDIGO
+  left_join(nodos_posicionados %>% mutate(codigo = as.character(codigo)) %>% 
+              select(from = codigo, curso_from = curso_num, cuat_from = cuat_clean), by = "from") %>%
+  left_join(nodos_posicionados %>% mutate(codigo = as.character(codigo)) %>% 
+              select(to = codigo, curso_to = curso_num, cuat_to = cuat_clean), by = "to") %>%
+  filter(!is.na(curso_from) & !is.na(curso_to)) %>%
+  
+  # Mapeo exacto de las etiquetas para la leyenda semántico-cromática
+  mutate(
+    tipo_relacion = case_when(
+      curso_from != curso_to ~ "Relación Vertical (Cursos diferentes)",
+      curso_from == curso_to & cuat_from == cuat_to ~ "Relación Horizontal (Mismo Cuatrimestre)",
+      curso_from == curso_to & cuat_from != cuat_to ~ "Relación Horizontal (Distinto Cuatrimestre)",
+      TRUE ~ "Relación Vertical (Cursos diferentes)"
+    )
+  ) %>%
+  select(from, to, similitud_lsa, tipo_relacion)
+
+# 3. ENSAMBLAJE DEL GRAFO MATRICIAL HÍBRIDO
+nodes_final <- nodos_posicionados %>% 
+  rename(id = codigo) %>%
+  mutate(id = as.character(id)) # Forzamos tipo carácter para consistencia con edges
+
+grafo_semantico <- tbl_graph(
+  nodes = nodes_final, 
+  edges = aristas_semanticas, 
+  directed = FALSE
+)
+
+# ----------------------------------------------------------------------------
+# 4. RENDERIZACIÓN CON INTEGRACIÓN DE COLOR VECTORIAL Y GROSOR EXPANSIVO
+# ----------------------------------------------------------------------------
+diagrama_semantico_final <- ggraph(grafo_semantico, layout = "manual", x = x_coord, y = y_coord) +
+  
+  # CAPA 1: Relaciones entre cursos diferentes -> Rectas y grises
+  geom_edge_link(
+    aes(filter = (tipo_relacion == "Relación Vertical (Cursos diferentes)"), 
+        color = tipo_relacion, width = similitud_lsa),
+    alpha = 0.5,
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm')
+  ) +
+  
+  # CAPA 2: Horizontales mismo curso e INTRACUATRIMESTRE -> Arcos por ARRIBA y Verde Oscuro
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Relación Horizontal (Mismo Cuatrimestre)"), 
+        color = tipo_relacion, width = similitud_lsa),
+    alpha = 0.7, strength = 0.08,
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm')
+  ) +
+  
+  # CAPA 3: Horizontales mismo curso e INTERCUATRIMESTRE -> Arcos por ABAJO y Verde Claro
+  geom_edge_arc(
+    aes(filter = (tipo_relacion == "Relación Horizontal (Distinto Cuatrimestre)"), 
+        color = tipo_relacion, width = similitud_lsa),
+    alpha = 0.7, strength = -0.08,
+    start_cap = circle(3, 'mm'), end_cap = circle(3, 'mm')
+  ) +
+  
+  # Nodos monocolor naranja académico uniforme
+  geom_node_point(
+    color = "#E67E22", 
+    size = 6
+  ) +
+  
+  # Rotulación mnemotécnica en mayúsculas estricta debajo del nodo
+  geom_node_text(
+    aes(label = sigla_display),
+    vjust = 2.6, size = 2.6, fontface = "bold", color = "#2C3E50"
+  ) +
+  
+  # ASIGNACIÓN DE COLORES SOLICITADOS (+5% de contraste en verde interno)
+  scale_edge_color_manual(
+    name = "Estructura de la Relación Semántica",
+    values = c(
+      "Relación Vertical (Cursos diferentes)"        = "#7F8C8D", # Gris medio técnico
+      "Relación Horizontal (Mismo Cuatrimestre)"     = "#145A32", # Verde oscuro profundo
+      "Relación Horizontal (Distinto Cuatrimestre)"  = "#2ECC71"  # Verde claro brillante
+    )
+  ) +
+  
+  # ESCALA DE GROSORES: Mantener reescalado dinámico local maximizado (0.1 a 3.5 mm)
+  scale_edge_width_continuous(
+    name = paste("Intensidad Semántica Relativa (LSA >", umbral_usuario, ")"),
+    range = c(0.1, 3.5)
+  ) +
+  
+  # SOLUCIÓN LIENZO INFERIOR: Límite expandido a 0.1 para salvar los arcos descendentes de 1º año
+  scale_y_continuous(
+    breaks = 1:4, labels = c("1º Curso", "2º Curso", "3º Curso", "4º Curso"),
+    limits = c(0.1, 4.5)
+  ) +
+  
+  labs(
+    title = "Estructura de Convergencia Semántica Latente (UCO)",
+    subtitle = paste("Filtro Exponencial Híbrido: Código de Color Estructural y Grosores Dinámicos (Umbral >", umbral_usuario, ")"),
+    x = "← 1er Cuatrimestre                               |              2º Cuatrimestre →", 
+    y = ""
+  ) +
+  
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "#EBF0F1", linetype = "solid"),
+    axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+    axis.title.x = element_text(face = "bold", size = 10, color = "#7F8C8D", margin = margin(t = 12)),
+    axis.text.y = element_text(face = "bold", size = 10, color = "#2C3E50"),
+    plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, color = "#7F8C8D", margin = margin(b = 15)),
+    
+    # Colchón de aire perimetral para evitar recortes en la exportación
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 10, unit = "pt"),
+    
+    # Configuración de la doble leyenda integrada en la base (Color + Grosor)
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.title = element_text(face = "bold", size = 9, color = "#2C3E50"),
+    legend.text = element_text(size = 8.5, color = "#34495E"),
+    panel.background = element_rect(fill = "#FFFFFF", color = NA)
+  )
+
+# 6. EXPORTACIÓN SILENCIOSA A LA CARPETA OUTPUTS (PDF VECTORIAL)
+carpeta_outputs <- "outputs"
+if (!dir.exists(carpeta_outputs)) dir.create(carpeta_outputs, recursive = TRUE)
+
+ggsave(
+  filename = file.path(carpeta_outputs, "mapa_similitud_lsa.pdf"),
+  plot = diagrama_semantico_final,
+  width = 11,
+  height = 7,
+  device = "pdf"
+)
+
+# 7. INVOCACIÓN DE RETORNO PARA EL REPOSITORIO DE QUARTO (HTML)
+diagrama_semantico_final
+
+
+```
 
 ## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
 
