@@ -823,7 +823,7 @@ tabla_relaciones_semanticas <- tibble(
 
 ## Caracterización de las relaciones entre asignaturas en función de potenciales necesidades de coordinación
 
-### Combinación de todas las tablas de resultados parciales
+### Combinación de todas las tablas de resultados parciales y creación del índice Delta LSA TF-IDF
 
 ```{r}
 #| label: combina-resultados
@@ -831,31 +831,35 @@ tabla_relaciones_semanticas <- tibble(
 #| eval: true
 
 # ==============================================================================
-# FASE FINAL: CONSOLIDACIÓN DE LA MATRIZ MAESTRA DE RELACIONES DEL GRADO
+# UNIFICACIÓN MATRICIAL Y CONSOLIDACIÓN CURRICULAR DE RELACIONES
 # ==============================================================================
 
 library(tidyverse)
 
-# 1. PREPARACIÓN Y HOMOGENEIZACIÓN DE LAS CUATRO CAPAS ANALÍTICAS
-# Forzamos cadenas de caracteres, limpiamos espacios y estandarizamos nombres de columnas
+# ------------------------------------------------------------------------------
+# PASO 1: Aislamiento y estandarización atómica de aristas (Solo Códigos)
+# ------------------------------------------------------------------------------
 
-capa_1_coordinacion <- tabla_relaciones_explicitas_verificadas %>%
+# Capa 1: Coordinación Explícita
+capa_1 <- tabla_relaciones_explicitas_verificadas %>%
   mutate(
     codigo_1 = str_trim(as.character(codigo_1)),
     codigo_2 = str_trim(as.character(codigo_2)),
-    coordinacion_explicita = 1  # Flag indicador de existencia
+    coordinacion_explicita = 1
   ) %>%
   select(codigo_1, codigo_2, coordinacion_explicita)
 
-capa_2_dependencia <- relaciones_dependencia_detectadas %>%
+# Capa 2: Dependencias (Nota: indicas que se llama igual que la tabla 1)
+capa_2 <- tabla_relaciones_explicitas_verificadas %>%
   mutate(
-    codigo_1 = str_trim(as.character(codigo_origen)),   # Mapeo a estructura unificada
-    codigo_2 = str_trim(as.character(codigo_destino)),
-    dependencia_normativa = 1   # Flag indicador de existencia
+    codigo_1 = str_trim(as.character(codigo_1)),
+    codigo_2 = str_trim(as.character(codigo_2)),
+    dependencia_normativa = 1
   ) %>%
   select(codigo_1, codigo_2, dependencia_normativa)
 
-capa_3_tfidf <- similitud_tfidf_detectada %>%
+# Capa 3: Similitud TF-IDF (Mapeo exacto de tus nombres de campo: codigo_1, codigo_2, coseno_tfidf)
+capa_3 <- similitud_tfidf_detectada %>%
   mutate(
     codigo_1 = str_trim(as.character(codigo_1)),
     codigo_2 = str_trim(as.character(codigo_2)),
@@ -863,26 +867,27 @@ capa_3_tfidf <- similitud_tfidf_detectada %>%
   ) %>%
   select(codigo_1, codigo_2, coseno_tfidf)
 
-capa_4_lsa <- tabla_relaciones_semanticas %>%
+# Capa 4: Similitud LSA (Mapeo exacto de tus nombres de campo: codigo_A, `codigo_"B` -> corregido a codigo_B)
+capa_4 <- tabla_relaciones_semanticas %>%
   mutate(
-    codigo_1 = str_trim(as.character(codigo_A)),       # Mapeo a estructura unificada
+    codigo_1 = str_trim(as.character(codigo_A)),
     codigo_2 = str_trim(as.character(codigo_B)),
     similitud_lsa = as.numeric(similitud_lsa)
   ) %>%
   select(codigo_1, codigo_2, similitud_lsa)
 
-# 2. INTEGRACIÓN RELACIONAL COMPLETA (FULL JOIN SECUENCIAL)
-# Aseguramos que no se pierda ninguna pareja, aparezca en la capa que aparezca
-matriz_maestra_codigos <- capa_1_coordinacion %>%
-  full_join(capa_2_dependencia, by = c("codigo_1", "codigo_2")) %>%
-  full_join(capa_3_tfidf,       by = c("codigo_1", "codigo_2")) %>%
-  full_join(capa_4_lsa,         by = c("codigo_1", "codigo_2"))
 
-# 3. FILTRADO GEOMÉTRICO DE REDUNDANCIAS Y REESTRUCTURACIÓN DE FLAGS
-# Si los joins introdujeron el par simétrico inverso debido a la direccionalidad 
-# de las dependencias, forzamos la orientación indexada (codigo_1 < codigo_2)
-matriz_maestra_limpia <- matriz_maestra_codigos %>%
-  # Aseguramos que el código menor siempre quede a la izquierda para colapsar duplicados
+# ------------------------------------------------------------------------------
+# PASO 2: Integración Relacional Total y Normalización de Pares
+# ------------------------------------------------------------------------------
+base_unificada <- capa_1 %>%
+  full_join(capa_2, by = c("codigo_1", "codigo_2")) %>%
+  full_join(capa_3, by = c("codigo_1", "codigo_2")) %>%
+  full_join(capa_4, by = c("codigo_1", "codigo_2"))
+
+# Forzamos que la asignatura menor en código quede a la izquierda (codigo_1 < codigo_2)
+# Esto colapsa cualquier duplicado simétrico o inverso surgido de los joins
+matriz_aristas_limpia <- base_unificada %>%
   mutate(
     c1_tmp = pmin(codigo_1, codigo_2),
     c2_tmp = pmax(codigo_1, codigo_2)
@@ -890,106 +895,241 @@ matriz_maestra_limpia <- matriz_maestra_codigos %>%
   select(-codigo_1, -codigo_2) %>%
   rename(codigo_1 = c1_tmp, codigo_2 = c2_tmp) %>%
   
-  # Agrupamos por pareja unívoca y consolidamos los valores máximos encontrados
+  # Consolidamos las relaciones encontradas eliminando redundancias
   group_by(codigo_1, codigo_2) %>%
   summarise(
-    coordinacion_explicita = max(coordinacion_explicita, na.rm = TRUE),
-    dependencia_normativa  = max(dependencia_normativa, na.rm = TRUE),
-    coseno_tfidf           = max(coseno_tfidf, na.rm = TRUE),
-    similitud_lsa          = max(similitud_lsa, na.rm = TRUE),
+    coordinacion_explicita = if_else(any(coordinacion_explicita == 1, na.rm = TRUE), 1, 0),
+    dependencia_normativa  = if_else(any(dependencia_normativa == 1, na.rm = TRUE), 1, 0),
+    coseno_tfidf           = if_else(all(is.na(coseno_tfidf)), 0, max(coseno_tfidf, na.rm = TRUE)),
+    similitud_lsa          = if_else(all(is.na(similitud_lsa)), 0, max(similitud_lsa, na.rm = TRUE)),
     .groups = "drop"
   ) %>%
-  
-  # Filtro de higiene: eliminar bucles de auto-referencia (si existieran)
-  filter(codigo_1 != codigo_2) %>%
-  
-  # RECTIFICACIÓN DE VALORES NULOS: Convertimos -Inf (de max con NA) y NA reales a 0 o su valor escalar
+  filter(codigo_1 != codigo_2) # Eliminamos auto-relaciones
+
+
+# ------------------------------------------------------------------------------
+# PASO 3: Construcción del Diccionario de Estructura Plan de Estudios (Saneado)
+# ------------------------------------------------------------------------------
+# Extraemos de datos_guias_inicial el curso y cuatrimestre real por código
+diccionario_maestro <- datos_guias_inicial %>%
   mutate(
-    coordinacion_explicita = if_else(is.infinite(coordinacion_explicita) | is.na(coordinacion_explicita), 0, coordinacion_explicita),
-    dependencia_normativa  = if_else(is.infinite(dependencia_normativa) | is.na(dependencia_normativa), 0, dependencia_normativa),
-    coseno_tfidf           = if_else(is.infinite(coseno_tfidf) | is.na(coseno_tfidf), 0, coseno_tfidf),
-    similitud_lsa          = if_else(is.infinite(similitud_lsa) | is.na(similitud_lsa), 0, similitud_lsa)
+    codigo_clean = str_trim(as.character(codigo)),
+    asig_clean   = str_trim(as.character(nombre_asignatura)),
+    cuat_clean   = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ "1C",
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ "2C",
+      TRUE ~ str_trim(as.character(cuatrimestre))
+    )
+  ) %>%
+  group_by(codigo_clean) %>%
+  summarise(
+    nombre_asignatura = first(asig_clean),
+    curso             = first(curso),
+    cuatrimestre      = first(cuat_clean),
+    .groups = "drop"
   )
 
-# 4. INYECCIÓN FINAL DE METADATOS DESCRIPTIVOS (NOMBRES Y SIGLAS DE LA UCO)
-# Extraemos el diccionario maestro directamente desde los datos de las guías originales
-diccionario_grados <- datos_guias %>%
-  mutate(codigo_clean = str_trim(as.character(codigo))) %>%
-  distinct(codigo = codigo_clean, sigla, nombre_asignatura)
-
-matriz_maestra_final <- matriz_maestra_limpia %>%
-  # Cruzamos los metadatos oficiales de la Asignatura 1
-  left_join(diccionario_grados, by = c("codigo_1" = "codigo")) %>%
-  rename(sigla_1 = sigla, asignatura_1 = nombre_asignatura) %>%
+# ------------------------------------------------------------------------------
+# PASO 4: Enriquecimiento mediante Doble Join y Mapeo de Identidades
+# ------------------------------------------------------------------------------
+matriz_maestra <- matriz_aristas_limpia %>%
   
-  # Cruzamos los metadatos oficiales de la Asignatura 2
-  left_join(diccionario_grados, by = c("codigo_2" = "codigo")) %>%
-  rename(sigla_2 = sigla, asignatura_2 = nombre_asignatura) %>%
+  # Join 1: Metadatos temporales e identidad de la Asignatura 1
+  left_join(diccionario_maestro, by = c("codigo_1" = "codigo_clean")) %>%
+  rename(asignatura_1 = nombre_asignatura, curso_1 = curso, cuatrimestre_1 = cuatrimestre) %>%
   
-  # Reorganización y maquetación de campos según el criterio del usuario
-  select(
-    codigo_1, sigla_1, asignatura_1,
-    codigo_2, sigla_2, asignatura_2,
-    coordinacion_explicita, dependencia_normativa, coseno_tfidf, similitud_lsa
-  ) %>%
-  # Ordenamos descendentemente priorizando los solapamientos latentes más intensos
-  arrange(desc(similitud_lsa), desc(coseno_tfidf))
-
-# 5. ALMACENAMIENTO DE SEGURIDAD EN LA CARPETA OUTPUTS
-if (!dir.exists("outputs")) dir.create("outputs", recursive = TRUE)
-write_csv2(matriz_maestra_final, "outputs/matriz_maestra_relaciones_CCAA.csv")
-
-cat("Matriz Maestra consolidada. Total de relaciones únicas indexadas:", nrow(matriz_maestra_final), "\n")
-
-
-```
-
-### Creación del índice Delta LSA TF-IDF
-
-```{r}
-# ==============================================================================
-# FASE COMPLEMENTARIA: CÁLCULO DEL DELTA SEMÁNTICO (LSA - TF-IDF)
-# ==============================================================================
-
-#| label: crea-delta-lsa-tfidf
-#| echo: false
-#| eval: true
-
-library(tidyverse)
-
-# 1. CÁLCULO DEL DELTA EN LA MATRIZ MAESTRA
-matriz_maestra_final <- matriz_maestra_final %>%
+  # Join 2: Metadatos temporales e identidad de la Asignatura 2
+  left_join(diccionario_maestro, by = c("codigo_2" = "codigo_clean")) %>%
+  rename(asignatura_2 = nombre_asignatura, curso_2 = curso, cuatrimestre_2 = cuatrimestre) %>%
+  
+  # Inyección de las siglas de visualización al final del todo usando el código
+  # (Asumimos que el objeto 'diccionario_siglas' que creamos al inicio está en la memoria)
+  left_join(diccionario_siglas %>% select(codigo_clean, sigla_A = sigla_clean), by = c("codigo_1" = "codigo_clean")) %>%
+  left_join(diccionario_siglas %>% select(codigo_clean, sigla_B = sigla_clean), by = c("codigo_2" = "codigo_clean")) %>%
+  
+  # Si alguna asignatura del grado no tenía sigla en el CSV, le asignamos su código como respaldo
   mutate(
-    # Computamos la discrepancia escalar entre ambos motores semánticos
-    delta_semantico = round(similitud_lsa - coseno_tfidf, 4)
+    sigla_1 = if_else(is.na(sigla_A), codigo_1, sigla_A),
+    sigla_2 = if_else(is.na(sigla_B), codigo_2, sigla_B)
   ) %>%
-  # Reorganizamos las columnas para situar el Delta junto a sus matrices de origen
+  
+  # Cálculo final del diferencial semántico continuo
+  mutate(delta_semantico = round(similitud_lsa - coseno_tfidf, 4)) %>%
+  
+  # Maquetación y ordenación final de campos estricta solicitada
   select(
-    codigo_1, sigla_1, asignatura_1,
-    codigo_2, sigla_2, asignatura_2,
+    codigo_1, sigla_1, asignatura_1, curso_1, cuatrimestre_1,
+    codigo_2, sigla_2, asignatura_2, curso_2, cuatrimestre_2,
     coordinacion_explicita, dependencia_normativa, 
     coseno_tfidf, similitud_lsa, delta_semantico
   ) %>%
-  # Ordenamos descendentemente de forma que emerjan primero las divergencias más agudas
   arrange(desc(delta_semantico))
 
-# 2. AUDITORÍA ESTADÍSTICA EXPANDIDA DEL DELTA
-cat("Resumen estadístico del Delta Semántico calculado:\n")
-print(summary(matriz_maestra_final$delta_semantico))
 
-# 3. IDENTIFICACIÓN LOGICIAL DE SOLAPAMIENTOS OCULTOS CRÍTICOS
-# Filtramos parejas que no se coordinan formalmente pero tienen un desfase latente severo
-solapamientos_ocultos <- matriz_maestra_final %>%
-  filter(coordinacion_explicita == 0 & delta_semantico > 0.50)
-
-cat("\nNúmero de alertas por solapamiento conceptual oculto detectadas (Delta > 0.50 sin coordinación):", 
-    nrow(solapamientos_ocultos), "\n")
-
-# 4. SOBREESCRITURA DE SEGURIDAD DEL DATASET CONSOLIDADO
-write_csv2(matriz_maestra_final, "outputs/matriz_maestra_relaciones_CCAA.csv")
-cat("Matriz Maestra actualizada y exportada con éxito en 'outputs/matriz_maestra_relaciones_CCAA.csv'.\n")
 
 ```
+
+## asignación te tipologías a las relaciones asegurando que suman 1 los grados de pertenencia
+
+
+```{r}
+# ==============================================================================
+# FASE COMPLEMENTARIA: MOTOR DE INFERENCIA MEDIANTE PARTICIÓN DIFUSA ESTRICTA
+# ==============================================================================
+
+library(tidyverse)
+
+matriz_maestra_particion <- matriz_maestra %>%
+  mutate(
+    # 1. EVALUACIÓN DE LAS BALIZAS CRUCIALES TEMPORALES
+    es_sincronico = (curso_1 == curso_2 & cuatrimestre_1 == cuatrimestre_2),
+    es_diacronico = (curso_1 != curso_2),
+    
+    # 2. CÁLCULO EN FRÍO DE LAS FUERZAS SEMÁNTICAS BRUTAS
+    # Confluencia pura (Delta positivo)
+    fuerza_confluencia = pmax(delta_semantico, 0),
+    
+    # Solapamiento base (Intersección Zadeh)
+    fuerza_solap_base  = pmin(similitud_lsa, coseno_tfidf),
+    
+    fuerza_sincronica  = if_else(es_sincronico, fuerza_solap_base, 0),
+    fuerza_diacronica  = if_else(es_diacronico, fuerza_solap_base, 0),
+    
+    # Suma de control semántica para la normalización posterior
+    suma_fuerzas_semanticas = fuerza_confluencia + fuerza_sincronica + fuerza_diacronica
+  ) %>%
+  
+  # 3. APLICACIÓN DE LAS REGLAS DE JERARQUÍA EXCLUYENTE Y PARTICIÓN ESTRICTA (∑u = 1)
+  mutate(
+    u_coordinacion = case_when(
+      coordinacion_explicita == 1 ~ 1,
+      TRUE ~ 0
+    ),
+    
+    u_andamiaje = case_when(
+      u_coordinacion == 1 ~ 0,
+      coordinacion_explicita == 0 & dependencia_normativa == 1 ~ 1,
+      TRUE ~ 0
+    ),
+    
+    # Si las capas formales están activas, las semánticas caen a 0 de forma fulminante.
+    # Si están inactivas (0), se distribuyen el 100% de la pertenencia restante de forma proporcional.
+    u_confluencia = case_when(
+      u_coordinacion == 1 | u_andamiaje == 1 ~ 0,
+      suma_fuerzas_semanticas == 0           ~ 0, # Evitamos división por cero si todo es cero
+      TRUE ~ fuerza_confluencia / suma_fuerzas_semanticas
+    ),
+    
+    u_solapamiento_sincronico = case_when(
+      u_coordinacion == 1 | u_andamiaje == 1 ~ 0,
+      suma_fuerzas_semanticas == 0           ~ 0,
+      TRUE ~ fuerza_sincronica / suma_fuerzas_semanticas
+    ),
+    
+    u_solapamiento_diacronico = case_when(
+      u_coordinacion == 1 | u_andamiaje == 1 ~ 0,
+      suma_fuerzas_semanticas == 0           ~ 0,
+      TRUE ~ fuerza_diacronica / suma_fuerzas_semanticas
+    )
+  ) %>%
+  
+  # 4. TRATAMIENTO DE PAREJAS RESIDUALES (Sin ninguna relación formal ni semántica)
+  # Si una pareja tiene ceros absolutos en todo, su pertenencia se asigna a un "Ruido/Inconexión"
+  # para que la suma siga dando 1 de forma estricta.
+  mutate(
+    u_inconexa = if_else(u_coordinacion == 0 & u_andamiaje == 0 & suma_fuerzas_semanticas == 0, 1, 0)
+  ) %>%
+  
+  # 5. REDONDEO DE PRECISIÓN HOMOGÉNEO Y PURGA DE VARIABLES AUXILIARES
+  mutate(
+    u_coordinacion            = round(u_coordinacion, 4),
+    u_andamiaje               = round(u_andamiaje, 4),
+    u_confluencia             = round(u_confluencia, 4),
+    u_solapamiento_sincronico = round(u_solapamiento_sincronico, 4),
+    u_solapamiento_diacronico = round(u_solapamiento_diacronico, 4),
+    u_inconexa                = round(u_inconexa, 4)
+  ) %>%
+  select(
+    codigo_1, sigla_1, asignatura_1, curso_1, cuatrimestre_1,
+    codigo_2, sigla_2, asignatura_2, curso_2, cuatrimestre_2,
+    u_coordinacion, u_andamiaje, u_confluencia, 
+    u_solapamiento_sincronico, u_solapamiento_diacronico, u_inconexa
+  )
+
+# 6. VERIFICACIÓN METODOLÓGICA POST-COMPILACIÓN (CORTAFUEGOS MATEMÁTICO)
+# Comprobamos en la consola que la suma de todas las filas sea exactamente 1
+sumas_comprobacion <- matriz_maestra_particion %>%
+  mutate(total = u_coordinacion + u_andamiaje + u_confluencia + u_solapamiento_sincronico + u_solapamiento_diacronico + u_inconexa) %>%
+  pull(total)
+
+cat("¿Todas las relaciones cumplen la Partición de Ruspini (Suma == 1)?:", all(abs(sumas_comprobacion - 1) < 1e-5), "\n")
+
+
+
+
+```
+
+
+
+
+## Asignación de tipologías a las relaciones fusificada
+
+```{r}
+# ==============================================================================
+# FASE COMPLEMENTARIA: MOTOR DE FUSIFICACIÓN Y NORMALIZACIÓN CRÍTICA
+# ==============================================================================
+
+library(tidyverse)
+
+matriz_maestra_difusa <- matriz_maestra %>%
+  mutate(
+    # --------------------------------------------------------------------------
+    # 1. FUSIFICACIÓN DE LA CONFLUENCIA (Basada en el Delta Semántico)
+    # --------------------------------------------------------------------------
+    # Rango experto: 0 (nada) a 0.50 (máxima confluencia latente oculta)
+    u_confluencia = case_when(
+      delta_semantico <= 0    ~ 0,
+      delta_semantico >= 0.50 ~ 1,
+      TRUE ~ (delta_semantico - 0) / (0.50 - 0) # Escalado lineal intermedio
+    ),
+    
+    # --------------------------------------------------------------------------
+    # 2. FUSIFICACIÓN DEL SOLAPAMIENTO BASE (Intersección LSA ∩ TF-IDF)
+    # --------------------------------------------------------------------------
+    # Rango experto: 0.05 (ruido marginal) a 0.25 (solapamiento severo comprobado)
+    solap_base = pmin(similitud_lsa, coseno_tfidf),
+    
+    u_solap_normalizado = case_when(
+      solap_base <= 0.05 ~ 0,
+      solap_base >= 0.25 ~ 1,
+      TRUE ~ (solap_base - 0.05) / (0.25 - 0.05) # Escalado lineal intermedio
+    ),
+    
+    # --------------------------------------------------------------------------
+    # 3. CANALIZACIÓN Y SEGMENTACIÓN TEMPORAL DE LAS ESCALAS HOMOGÉNEAS
+    # --------------------------------------------------------------------------
+    es_sincronico = (curso_1 == curso_2 & cuatrimestre_1 == cuatrimestre_2),
+    
+    u_solapamiento_sincronico = if_else(es_sincronico, u_solap_normalizado, 0),
+    u_solapamiento_diacronico = if_else(curso_1 != curso_2, u_solap_normalizado, 0)
+  ) %>%
+  
+  # Redondeo homogéneo de precisión para el informe
+  mutate(
+    u_confluencia             = round(u_confluencia, 4),
+    u_solapamiento_sincronico = round(u_solapamiento_sincronico, 4),
+    u_solapamiento_diacronico = round(u_solapamiento_diacronico, 4)
+  ) %>%
+  
+  # Purgamos las variables de cálculo matemático interno
+  select(-solap_base, -u_solap_normalizado, -es_sincronico)
+
+
+
+
+
+```
+
 
 
 
@@ -1851,6 +1991,188 @@ Aquí estaría guay hacer una tabla final que sintetizara los valores de cada re
 -   Similitud según LSA. Continuo `tabla_relaciones_semanticas`
 
 A estos valores aplicamos las reglas heurísticas que hemos inventado. Quizás se puede aplicar también la lógica difusa y asignar porcentages de pertenencia de cada relación a los distintos tipos de asignaturasd...
+
+
+```{r}
+# ==============================================================================
+# Crea matriz para heatmap
+# ==============================================================================
+
+library(tidyverse)
+
+# 1. Calculamos el IAC continuo para cada par único de asignaturas
+matriz_iac_longitudinal <- matriz_maestra_particion %>%
+  mutate(
+    iac = (1.5 * u_solapamiento_diacronico) + 
+          (1.0 * u_solapamiento_sincronico) - 
+          (0.5 * u_confluencia)
+  ) %>%
+  select(codigo_1, codigo_2, iac)
+
+# 2. Espejamos la tabla para que sea simétrica (aristas de ida y vuelta)
+matriz_iac_espejada <- bind_rows(
+  matriz_iac_longitudinal,
+  matriz_iac_longitudinal %>% rename(codigo_1 = codigo_2, codigo_2 = codigo_1)
+) %>%
+  distinct(codigo_1, codigo_2, .keep_all = TRUE)
+
+# 3. Pivotamos a una matriz cuadrada estricta (Asignaturas x Asignaturas)
+matriz_cuadrada_heatmap <- matriz_iac_espejada %>%
+  pivot_wider(names_from = codigo_2, values_from = iac, values_fill = 0) %>%
+  column_to_rownames("codigo_1") %>%
+  as.matrix()
+
+# Aseguramos que la diagonal principal (auto-coincidencia) esté limpia en 0
+diag(matriz_cuadrada_heatmap) <- 0
+
+cat("Matriz de defusificación IAC completada. Dimensiones cuadradas:", dim(matriz_cuadrada_heatmap), "\n")
+
+
+```
+
+```{r}
+# ==============================================================================
+# VISUALIZACIÓN TRIANGULAR OPTIMIZADA: SÓLO SIGLAS CON EXPORTACIÓN A PDF (CORREGIDO)
+# ==============================================================================
+
+library(tidyverse)
+library(pheatmap)
+
+# ------------------------------------------------------------------------------
+# 1. Preparación de Etiquetas de Siglas Únicas (Evita nombres duplicados)
+# ------------------------------------------------------------------------------
+dicc_etiquetas <- matriz_maestra_particion %>%
+  select(codigo_1, sigla_1) %>%
+  distinct(codigo_1, .keep_all = TRUE) %>%
+  mutate(
+    codigo_clean = str_trim(as.character(codigo_1)),
+    sigla_clean  = str_trim(as.character(sigla_1))
+  )
+
+# ------------------------------------------------------------------------------
+# 2. Sincronización Avanzada del Clustering Jerárquico (Ward.D2)
+# ------------------------------------------------------------------------------
+distancias_hclust <- dist(matriz_cuadrada_heatmap, method = "euclidean")
+arbol_jerarquico  <- hclust(distancias_hclust, method = "ward.D2")
+
+# Extraemos el orden exacto de los códigos según el dendrograma
+orden_cluster <- arbol_jerarquico$order
+asignaturas_ordenadas <- rownames(matriz_cuadrada_heatmap)[orden_cluster]
+
+# Reordenamos la matriz original en ambos ejes SIMÉTRICAMENTE en frío
+matriz_ordenada <- matriz_cuadrada_heatmap[asignaturas_ordenadas, asignaturas_ordenadas]
+
+# ------------------------------------------------------------------------------
+# 3. Aplicación de la Máscara Triangular (Ocultar Mitad Superior + Diagonal)
+# ------------------------------------------------------------------------------
+matriz_triangular <- matriz_ordenada
+matriz_triangular[upper.tri(matriz_triangular, diag = TRUE)] <- NA
+
+# ------------------------------------------------------------------------------
+# 4. Inyección de Siglas Puras con Cortafuegos de Duplicados (SINTAXIS CORREGIDA)
+# ------------------------------------------------------------------------------
+siglas_limpias <- map_chr(rownames(matriz_triangular), function(cod) {
+  # Corregido de %&% a %>% para la correcta evaluación en dplyr
+  match_sigla <- dicc_etiquetas %>% filter(codigo_clean == cod) %>% pull(sigla_clean)
+  
+  if (length(match_sigla) == 0 || is.na(match_sigla) || match_sigla == "") {
+    return(cod) 
+  } else {
+    return(match_sigla)
+  }
+})
+
+# Hacemos que las siglas sean unívocas para evitar errores por claves repetidas
+siglas_unicas <- make.unique(siglas_limpias, sep = ".")
+
+# Asignamos las siglas limpias a ambos ejes de la matriz triangular
+rownames(matriz_triangular) <- siglas_unicas
+colnames(matriz_triangular) <- siglas_unicas
+
+# ------------------------------------------------------------------------------
+# 5. Sincronización Estricta de las Anotaciones Laterales
+# ------------------------------------------------------------------------------
+anotaciones_df <- datos_guias_inicial %>%
+  mutate(codigo_clean = str_trim(as.character(codigo))) %>%
+  filter(codigo_clean %in% asignaturas_ordenadas) %>%
+  distinct(codigo_clean, curso, cuatrimestre) %>%
+  mutate(
+    Curso        = paste0(curso, "º Curso"),
+    Cuatrimestre = case_when(
+      str_detect(tolower(cuatrimestre), "primer|1") ~ "1er Cuat.",
+      str_detect(tolower(cuatrimestre), "segundo|2") ~ "2º Cuat.",
+      TRUE ~ "Anual"
+    )
+  )
+
+# Construimos las anotaciones indexando exactamente por las siglas únicas ordenadas
+anotaciones_listas <- tibble(codigo_clean = asignaturas_ordenadas, etiqueta = siglas_unicas) %>%
+  left_join(anotaciones_df, by = "codigo_clean") %>%
+  select(etiqueta, Curso, Cuatrimestre) %>%
+  column_to_rownames("etiqueta")
+
+# ------------------------------------------------------------------------------
+# 6. Configuración de Paletas Estéticas Generales
+# ------------------------------------------------------------------------------
+colores_matriz <- colorRampPalette(c("#1F618D", "#FFFFFF", "#C0392B"))(100)
+
+colores_anotaciones <- list(
+  Curso = c("1º Curso" = "#BDC3C7", "2º Curso" = "#95A5A6", 
+            "3º Curso" = "#7F8C8D", "4º Curso" = "#34495E"),
+  Cuatrimestre = c("1er Cuat." = "#AED6F1", "2º Cuat." = "#F9E79F", "Anual" = "#D5F5E3")
+)
+
+# ------------------------------------------------------------------------------
+# 7. EXPORTACIÓN AUTOMÁTICA A PDF (Salida Vectorial para Informe Técnico)
+# ------------------------------------------------------------------------------
+if (!dir.exists("outputs")) dir.create("outputs", recursive = TRUE)
+
+pheatmap(
+  mat = matriz_triangular,
+  color = colores_matriz,
+  breaks = seq(-0.30, 0.60, length.out = 101),
+  border_color = "#EBF0F1",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 7.5,   
+  fontsize_col = 7.5,
+  angle_col = 90,       
+  annotation_row = anotaciones_listas,
+  annotation_colors = colores_anotaciones,
+  na_col = "#FAFAFA",
+  main = "Diagnóstico Curricular de Ciencias Ambientales (UCO) - Vista Triangular",
+  
+  filename = "outputs/heatmap_triangular_siglas.pdf",
+  width = 11,           
+  height = 9
+)
+
+# ------------------------------------------------------------------------------
+# 8. RENDERIZADO EN PANTALLA / INTERACTIVO (Para visualización en Quarto HTML)
+# ------------------------------------------------------------------------------
+pheatmap(
+  mat = matriz_triangular,
+  color = colores_matriz,
+  breaks = seq(-0.30, 0.60, length.out = 101),
+  border_color = "#EBF0F1",
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 7.5,   
+  fontsize_col = 7.5,
+  angle_col = 90,       
+  annotation_row = anotaciones_listas,
+  annotation_colors = colores_anotaciones,
+  na_col = "#FAFAFA",
+  main = "Diagnóstico Curricular de Ciencias Ambientales (UCO) - Vista Triangular"
+)
+
+
+
+```
 
 # Discusión
 
