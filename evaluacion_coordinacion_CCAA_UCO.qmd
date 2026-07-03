@@ -969,6 +969,13 @@ matriz_maestra <- matriz_aristas_limpia %>%
 
 ```
 
+REHACER TODO DE AQUÍ HACIA ABAJO
+matriz_maestra es la tabla final que contiene todo. A partir de ella hay que:
+- aplicar alguna heurística para tomar decisiones.
+- Relee lo que dice gemini a partir de matriz_maestra y lo que dice claude
+
+
+
 ## asignación te tipologías a las relaciones asegurando que suman 1 los grados de pertenencia
 
 
@@ -1073,6 +1080,21 @@ cat("¿Todas las relaciones cumplen la Partición de Ruspini (Suma == 1)?:", all
 
 
 ## Asignación de tipologías a las relaciones fusificada
+
+a ver si te entiendo.
+
+Propones que para los grupos de coordinación y dependencia, asumamos reglas rígidas de pertenencia. 1 si el campo correspondiente tiene el valor de 1 y 0 si no. 
+
+Para los otros tres tipos de (confluencia, solapamiento sincrónico y diacrónico), propones una aproximación con lógica difusa. 
+
+Asimilas el grado de pertenencia al grupo de confluencia disciplinar al Delta semántico. Ya va de 0 a 1 y es directamente proporcional al grado de pertenencia que buscamos.
+
+luego creas un mu de solapamiento que es el mínimo entre similitud_lsa y coseno_tfidf. esto recoge la condición de que ambos índices (similitud_lsa y coseno_tfidf) tengan que ser altos para los dos grupos de solapamiento.
+
+Luego aplicas criterios de segmentación temporal para distinguir los solapamientos sincrónicos de los diacrónicos. Si ambas asignaturas de la msima relación están en el mismo curso, sería sincrónico. Si están en distinto curso, sería diacrónico. 
+
+¿lo he entendido bien?
+
 
 ```{r}
 # ==============================================================================
